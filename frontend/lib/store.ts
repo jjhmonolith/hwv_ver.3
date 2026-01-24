@@ -181,6 +181,9 @@ interface StudentState {
   clearSession: () => void;
 }
 
+// Hydration state for SSR/client sync
+let studentStoreHydrated = false;
+
 export const useStudentStore = create<StudentState>()(
   persist(
     (set) => ({
@@ -219,9 +222,17 @@ export const useStudentStore = create<StudentState>()(
         participant: state.participant,
         sessionInfo: state.sessionInfo,
       }),
+      onRehydrateStorage: () => {
+        return () => {
+          studentStoreHydrated = true;
+        };
+      },
     }
   )
 );
+
+// Helper to check if store is hydrated
+export const isStudentStoreHydrated = () => studentStoreHydrated;
 
 // ============================================
 // UI Store (non-persisted)

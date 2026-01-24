@@ -26,13 +26,20 @@ export default function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [analyzedTopics, setAnalyzedTopics] = useState<Topic[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  // Redirect if not authenticated
+  // Track hydration
   useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  // Redirect if not authenticated (only after hydration)
+  useEffect(() => {
+    if (!isHydrated) return;
     if (!sessionToken || !participant) {
       router.push('/join');
     }
-  }, [sessionToken, participant, router]);
+  }, [isHydrated, sessionToken, participant, router]);
 
   // Handle file drop
   const handleDrop = useCallback((e: React.DragEvent) => {

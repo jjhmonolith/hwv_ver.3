@@ -26,9 +26,16 @@ export default function StartPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmStart, setConfirmStart] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
-  // Redirect if not authenticated or no topics
+  // Track hydration
   useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  // Redirect if not authenticated or no topics (only after hydration)
+  useEffect(() => {
+    if (!isHydrated) return;
     if (!sessionToken || !participant) {
       router.push('/join');
       return;
@@ -36,7 +43,7 @@ export default function StartPage() {
     if (participant.status === 'registered') {
       router.push('/interview/upload');
     }
-  }, [sessionToken, participant, router]);
+  }, [isHydrated, sessionToken, participant, router]);
 
   // Determine available modes
   const availableModes: InterviewMode[] =

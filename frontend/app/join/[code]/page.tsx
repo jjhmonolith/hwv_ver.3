@@ -41,13 +41,15 @@ export default function JoinSessionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
   const [showReconnectModal, setShowReconnectModal] = useState(false);
+  const [initialTokenChecked, setInitialTokenChecked] = useState(false);
 
-  // Load session info on mount
+  // Load session info on mount (only check reconnect once on initial load)
   useEffect(() => {
     const loadSession = async () => {
       try {
-        // First check if we have an existing token
-        if (sessionToken) {
+        // First check if we have an existing token (only on initial mount)
+        if (!initialTokenChecked && sessionToken) {
+          setInitialTokenChecked(true);
           try {
             const reconnectResult = await api.join.reconnect(sessionToken);
             setShowReconnectModal(true);
@@ -67,6 +69,11 @@ export default function JoinSessionPage() {
           }
         }
 
+        // Mark as checked even if no token
+        if (!initialTokenChecked) {
+          setInitialTokenChecked(true);
+        }
+
         // Fetch session info
         const result = await api.join.lookup(code);
         setSession(result.session as SessionInfo);
@@ -82,7 +89,7 @@ export default function JoinSessionPage() {
     };
 
     loadSession();
-  }, [code, sessionToken, clearSession]);
+  }, [code, sessionToken, clearSession, initialTokenChecked]);
 
   // Handle reconnection
   const handleReconnect = async () => {
@@ -142,6 +149,8 @@ export default function JoinSessionPage() {
         interviewMode: (result.session as SessionInfo).interviewMode,
       });
 
+      // Wait for Zustand persist to complete before navigating
+      await new Promise(resolve => setTimeout(resolve, 100));
       router.push('/interview/upload');
     } catch (err) {
       if (err instanceof ApiError) {
