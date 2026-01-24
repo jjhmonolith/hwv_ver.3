@@ -95,12 +95,13 @@ async function request<T>(
 async function uploadFile<T>(
   endpoint: string,
   formData: FormData,
-  token?: string | null
+  sessionToken?: string | null
 ): Promise<T> {
   const headers: Record<string, string> = {};
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  // Use X-Session-Token for student authentication
+  if (sessionToken) {
+    headers['X-Session-Token'] = sessionToken;
   }
 
   try {
@@ -187,14 +188,14 @@ export const api = {
   // Join endpoints (Phase 3)
   join: {
     lookup: (accessCode: string) =>
-      request<{ session: unknown }>(`/api/join/${accessCode}`),
+      request<{ session: unknown }>(`/api/join/${accessCode.toUpperCase()}`),
     register: (accessCode: string, studentName: string, studentId?: string) =>
-      request<{ participant: unknown; sessionToken: string }>('/api/join/register', {
+      request<{ participant: unknown; sessionToken: string; session: unknown }>(`/api/join/${accessCode.toUpperCase()}`, {
         method: 'POST',
-        body: { accessCode, studentName, studentId },
+        body: { studentName, studentId },
       }),
     reconnect: (sessionToken: string) =>
-      request<{ participant: unknown }>('/api/join/reconnect', {
+      request<{ participant: unknown; sessionInfo: unknown; interviewState: unknown; redirectTo: string; status: string }>('/api/join/reconnect', {
         method: 'POST',
         body: { sessionToken },
       }),
@@ -205,35 +206,38 @@ export const api = {
     upload: (sessionToken: string, file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('sessionToken', sessionToken);
-      return uploadFile<{ topics: unknown[] }>('/api/interview/upload', formData);
+      return uploadFile<{ analyzedTopics: unknown[]; extractedTextLength: number; fileName: string }>('/api/interview/upload', formData, sessionToken);
     },
     start: (sessionToken: string, mode: string) =>
-      request<{ state: unknown }>('/api/interview/start', {
+      request<{ chosenMode: string; currentTopicIndex: number; currentTopic: unknown; firstQuestion: string; topicsState: unknown[] }>('/api/interview/start', {
         method: 'POST',
-        body: { sessionToken, mode },
+        body: { mode },
+        headers: { 'X-Session-Token': sessionToken },
       }),
     getState: (sessionToken: string) =>
-      request<{ state: unknown }>(`/api/interview/state?token=${sessionToken}`),
+      request<{ status: string; analyzedTopics: unknown[]; currentTopicIndex: number; currentPhase: string; topicsState: unknown[] }>('/api/interview/state', {
+        headers: { 'X-Session-Token': sessionToken },
+      }),
     heartbeat: (sessionToken: string) =>
       request<{ state: unknown }>('/api/interview/heartbeat', {
         method: 'POST',
-        body: { sessionToken },
+        headers: { 'X-Session-Token': sessionToken },
       }),
     submitAnswer: (sessionToken: string, answer: string) =>
       request<{ state: unknown }>('/api/interview/answer', {
         method: 'POST',
-        body: { sessionToken, answer },
+        body: { answer },
+        headers: { 'X-Session-Token': sessionToken },
       }),
     nextTopic: (sessionToken: string) =>
       request<{ state: unknown }>('/api/interview/next-topic', {
         method: 'POST',
-        body: { sessionToken },
+        headers: { 'X-Session-Token': sessionToken },
       }),
     complete: (sessionToken: string) =>
       request<{ summary: unknown }>('/api/interview/complete', {
         method: 'POST',
-        body: { sessionToken },
+        headers: { 'X-Session-Token': sessionToken },
       }),
   },
 };

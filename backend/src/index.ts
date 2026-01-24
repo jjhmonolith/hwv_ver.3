@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 // Route imports
 import authRoutes from './routes/auth.js';
 import sessionRoutes from './routes/sessions.js';
+import joinRoutes from './routes/join.js';
+import interviewRoutes from './routes/interview.js';
 
 // Load environment variables
 dotenv.config();
@@ -47,8 +49,8 @@ app.get('/health', (_req: Request, res: Response) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/sessions', sessionRoutes);
-// app.use('/api/join', joinRoutes);       // Phase 3
-// app.use('/api/interview', interviewRoutes); // Phase 4
+app.use('/api/join', joinRoutes);
+app.use('/api/interview', interviewRoutes);
 // app.use('/api/speech', speechRoutes);   // Phase 4b
 
 // 404 handler
