@@ -4,6 +4,192 @@ import { query } from '../db/connection.js';
 const router = Router();
 
 /**
+ * POST /api/join/reconnect
+ * Reconnect to session using stored token
+ * NOTE: This route MUST be defined before /:accessCode routes
+ */
+router.post('/reconnect', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sessionToken } = req.body;
+
+    // Validate token format
+    if (!sessionToken || !/^[a-f0-9]{64}$/i.test(sessionToken)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid session token',
+      });
+      return;
+    }
+
+    // Lookup participant with session and interview state
+    const result = await query(
+      `SELECT
+        sp.id, sp.session_id, sp.student_name, sp.student_id,
+        sp.status, sp.disconnected_at, sp.extracted_text, sp.analyzed_topics,
+        sp.chosen_interview_mode, sp.submitted_file_name,
+        s.id as sess_id, s.title, s.topic_count, s.topic_duration,
+        s.interview_mode, s.status as session_status, s.reconnect_timeout,
+        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at
+       FROM student_participants sp
+       JOIN assignment_sessions s ON sp.session_id = s.id
+       LEFT JOIN interview_states ist ON sp.id = ist.participant_id
+       WHERE sp.session_token = $1`,
+      [sessionToken]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Session not found',
+      });
+      return;
+    }
+
+    const data = result.rows[0];
+
+    // Check if session is still active
+    if (data.session_status !== 'active') {
+      res.status(400).json({
+        success: false,
+        error: 'Session has ended',
+      });
+      return;
+    }
+
+    // Check if already abandoned
+    if (data.status === 'abandoned') {
+      res.status(403).json({
+        success: false,
+        error: 'Session has expired due to timeout',
+      });
+      return;
+    }
+
+    // Calculate time deducted if disconnected
+    let timeDeducted = 0;
+    let showTransitionPage = false;
+    let expiredTopicTitle: string | null = null;
+
+    if (data.disconnected_at) {
+      const disconnectedAt = new Date(data.disconnected_at).getTime();
+      const now = Date.now();
+      timeDeducted = Math.floor((now - disconnectedAt) / 1000);
+
+      // Check reconnection timeout (default 30 minutes = 1800 seconds)
+      const timeout = data.reconnect_timeout || 1800;
+      if (timeDeducted > timeout) {
+        // Mark as abandoned
+        await query(
+          `UPDATE student_participants SET status = 'abandoned' WHERE id = $1`,
+          [data.id]
+        );
+
+        res.status(403).json({
+          success: false,
+          error: 'Session has expired due to timeout',
+        });
+        return;
+      }
+
+      // Check if topic expired while away (for interview_in_progress status)
+      if (data.status === 'interview_in_progress' && data.topics_state) {
+        const topicsState = typeof data.topics_state === 'string'
+          ? JSON.parse(data.topics_state)
+          : data.topics_state;
+        const currentTopic = topicsState[data.current_topic_index];
+
+        if (currentTopic && currentTopic.timeLeft <= timeDeducted) {
+          showTransitionPage = true;
+          expiredTopicTitle = currentTopic.title;
+
+          // Update phase to topic_expired_while_away
+          await query(
+            `UPDATE interview_states SET current_phase = 'topic_expired_while_away' WHERE participant_id = $1`,
+            [data.id]
+          );
+        }
+      }
+
+      // Clear disconnected_at
+      await query(
+        `UPDATE student_participants SET disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
+        [data.id]
+      );
+    }
+
+    // Update last_active_at
+    await query(
+      `UPDATE student_participants SET last_active_at = NOW() WHERE id = $1`,
+      [data.id]
+    );
+
+    // Determine redirect based on status
+    let redirectTo: string;
+    switch (data.status) {
+      case 'registered':
+        redirectTo = '/interview/upload';
+        break;
+      case 'file_submitted':
+        redirectTo = '/interview/start';
+        break;
+      case 'interview_in_progress':
+      case 'interview_paused':
+        redirectTo = '/interview';
+        break;
+      case 'completed':
+        redirectTo = '/interview/complete';
+        break;
+      default:
+        redirectTo = '/interview/upload';
+    }
+
+    const responseData: Record<string, unknown> = {
+      message: 'Reconnection successful',
+      participantId: data.id,
+      status: data.status,
+      timeDeducted,
+      showTransitionPage,
+      expiredTopicTitle,
+      redirectTo,
+      sessionInfo: {
+        id: data.sess_id,
+        title: data.title,
+        topicCount: data.topic_count,
+        topicDuration: data.topic_duration,
+        interviewMode: data.interview_mode,
+      },
+      participant: {
+        id: data.id,
+        studentName: data.student_name,
+        studentId: data.student_id,
+        status: data.status,
+        analyzedTopics: data.analyzed_topics,
+        chosenInterviewMode: data.chosen_interview_mode,
+        submittedFileName: data.submitted_file_name,
+      },
+    };
+
+    // Include interview state if exists
+    if (data.current_topic_index !== null) {
+      responseData.interviewState = {
+        currentTopicIndex: data.current_topic_index,
+        currentPhase: showTransitionPage ? 'topic_expired_while_away' : data.current_phase,
+        topicsState: data.topics_state,
+        topicStartedAt: data.topic_started_at,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      data: responseData,
+    });
+  } catch (error) {
+    console.error('Reconnect error:', error);
+    res.status(500).json({ success: false, error: 'Failed to reconnect' });
+  }
+});
+
+/**
  * GET /api/join/:accessCode
  * Lookup session info by access code (no auth required)
  */
@@ -183,191 +369,6 @@ router.post('/:accessCode', async (req: Request, res: Response): Promise<void> =
   } catch (error) {
     console.error('Join session error:', error);
     res.status(500).json({ success: false, error: 'Failed to join session' });
-  }
-});
-
-/**
- * POST /api/join/reconnect
- * Reconnect to session using stored token
- */
-router.post('/reconnect', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { sessionToken } = req.body;
-
-    // Validate token format
-    if (!sessionToken || !/^[a-f0-9]{64}$/i.test(sessionToken)) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid session token',
-      });
-      return;
-    }
-
-    // Lookup participant with session and interview state
-    const result = await query(
-      `SELECT
-        sp.id, sp.session_id, sp.student_name, sp.student_id,
-        sp.status, sp.disconnected_at, sp.extracted_text, sp.analyzed_topics,
-        sp.chosen_interview_mode, sp.submitted_file_name,
-        s.id as sess_id, s.title, s.topic_count, s.topic_duration,
-        s.interview_mode, s.status as session_status, s.reconnect_timeout,
-        is.current_topic_index, is.current_phase, is.topics_state, is.topic_started_at
-       FROM student_participants sp
-       JOIN assignment_sessions s ON sp.session_id = s.id
-       LEFT JOIN interview_states is ON sp.id = is.participant_id
-       WHERE sp.session_token = $1`,
-      [sessionToken]
-    );
-
-    if (result.rows.length === 0) {
-      res.status(404).json({
-        success: false,
-        error: 'Session not found',
-      });
-      return;
-    }
-
-    const data = result.rows[0];
-
-    // Check if session is still active
-    if (data.session_status !== 'active') {
-      res.status(400).json({
-        success: false,
-        error: 'Session has ended',
-      });
-      return;
-    }
-
-    // Check if already abandoned
-    if (data.status === 'abandoned') {
-      res.status(403).json({
-        success: false,
-        error: 'Session has expired due to timeout',
-      });
-      return;
-    }
-
-    // Calculate time deducted if disconnected
-    let timeDeducted = 0;
-    let showTransitionPage = false;
-    let expiredTopicTitle: string | null = null;
-
-    if (data.disconnected_at) {
-      const disconnectedAt = new Date(data.disconnected_at).getTime();
-      const now = Date.now();
-      timeDeducted = Math.floor((now - disconnectedAt) / 1000);
-
-      // Check reconnection timeout (default 30 minutes = 1800 seconds)
-      const timeout = data.reconnect_timeout || 1800;
-      if (timeDeducted > timeout) {
-        // Mark as abandoned
-        await query(
-          `UPDATE student_participants SET status = 'abandoned' WHERE id = $1`,
-          [data.id]
-        );
-
-        res.status(403).json({
-          success: false,
-          error: 'Session has expired due to timeout',
-        });
-        return;
-      }
-
-      // Check if topic expired while away (for interview_in_progress status)
-      if (data.status === 'interview_in_progress' && data.topics_state) {
-        const topicsState = typeof data.topics_state === 'string'
-          ? JSON.parse(data.topics_state)
-          : data.topics_state;
-        const currentTopic = topicsState[data.current_topic_index];
-
-        if (currentTopic && currentTopic.timeLeft <= timeDeducted) {
-          showTransitionPage = true;
-          expiredTopicTitle = currentTopic.title;
-
-          // Update phase to topic_expired_while_away
-          await query(
-            `UPDATE interview_states SET current_phase = 'topic_expired_while_away' WHERE participant_id = $1`,
-            [data.id]
-          );
-        }
-      }
-
-      // Clear disconnected_at
-      await query(
-        `UPDATE student_participants SET disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
-        [data.id]
-      );
-    }
-
-    // Update last_active_at
-    await query(
-      `UPDATE student_participants SET last_active_at = NOW() WHERE id = $1`,
-      [data.id]
-    );
-
-    // Determine redirect based on status
-    let redirectTo: string;
-    switch (data.status) {
-      case 'registered':
-        redirectTo = '/interview/upload';
-        break;
-      case 'file_submitted':
-        redirectTo = '/interview/start';
-        break;
-      case 'interview_in_progress':
-      case 'interview_paused':
-        redirectTo = '/interview';
-        break;
-      case 'completed':
-        redirectTo = '/interview/complete';
-        break;
-      default:
-        redirectTo = '/interview/upload';
-    }
-
-    const responseData: Record<string, unknown> = {
-      message: 'Reconnection successful',
-      participantId: data.id,
-      status: data.status,
-      timeDeducted,
-      showTransitionPage,
-      expiredTopicTitle,
-      redirectTo,
-      sessionInfo: {
-        id: data.sess_id,
-        title: data.title,
-        topicCount: data.topic_count,
-        topicDuration: data.topic_duration,
-        interviewMode: data.interview_mode,
-      },
-      participant: {
-        id: data.id,
-        studentName: data.student_name,
-        studentId: data.student_id,
-        status: data.status,
-        analyzedTopics: data.analyzed_topics,
-        chosenInterviewMode: data.chosen_interview_mode,
-        submittedFileName: data.submitted_file_name,
-      },
-    };
-
-    // Include interview state if exists
-    if (data.current_topic_index !== null) {
-      responseData.interviewState = {
-        currentTopicIndex: data.current_topic_index,
-        currentPhase: showTransitionPage ? 'topic_expired_while_away' : data.current_phase,
-        topicsState: data.topics_state,
-        topicStartedAt: data.topic_started_at,
-      };
-    }
-
-    res.status(200).json({
-      success: true,
-      data: responseData,
-    });
-  } catch (error) {
-    console.error('Reconnect error:', error);
-    res.status(500).json({ success: false, error: 'Failed to reconnect' });
   }
 });
 
