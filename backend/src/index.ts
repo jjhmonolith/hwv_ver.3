@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import sessionRoutes from './routes/sessions.js';
 import joinRoutes from './routes/join.js';
 import interviewRoutes from './routes/interview.js';
+import speechRoutes from './routes/speech.js';
 
 // Load environment variables
 dotenv.config();
@@ -55,7 +56,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/join', joinRoutes);
 app.use('/api/interview', interviewRoutes);
-// app.use('/api/speech', speechRoutes);   // Phase 4b
+app.use('/api/speech', speechRoutes);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

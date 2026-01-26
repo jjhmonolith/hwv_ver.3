@@ -6,14 +6,17 @@ import { useStudentStore, Message } from '@/lib/store';
 import { api } from '@/lib/api';
 import { useInterviewTimer } from '@/hooks/useInterviewTimer';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
+import { useSpeech } from '@/hooks/useSpeech';
 import { MessageBubble } from '@/components/interview/MessageBubble';
 import { Timer } from '@/components/interview/Timer';
 import { TopicProgress } from '@/components/interview/TopicProgress';
 import { ChatInterface } from '@/components/interview/ChatInterface';
+import VoiceInterface from '@/components/interview/VoiceInterface';
 
 /**
- * Main interview page - Chat mode
+ * Main interview page - Chat and Voice mode
  * Handles the core interview flow with AI questions and student answers
+ * Supports both text chat and voice-based interaction modes
  */
 export default function InterviewPage() {
   const router = useRouter();
@@ -29,7 +32,6 @@ export default function InterviewPage() {
     setInterviewState,
     addMessage,
     setMessages,
-    setParticipant,
   } = useStudentStore();
 
   // Local state
@@ -38,6 +40,14 @@ export default function InterviewPage() {
   const [error, setError] = useState<string | null>(null);
   // 빠른 연속 클릭 방지 (React 상태는 비동기라 즉시 반영 안됨)
   const isSubmittingRef = useRef(false);
+
+  // Voice mode state
+  const [ttsFailed, setTtsFailed] = useState(false);
+  const [reconnected, setReconnected] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
+
+  // Check if voice mode
+  const isVoiceMode = participant?.chosenInterviewMode === 'voice';
 
   // Current topic info
   const currentTopicIndex = interviewState?.currentTopicIndex ?? 0;
@@ -66,6 +76,47 @@ export default function InterviewPage() {
     onTimeUp: handleTimeUp,
     isTopicStarted: currentTopic?.started ?? false,
   });
+
+  // Build context for STT (Speech-to-Text) - provides AI with conversation history
+  const buildContext = useCallback(() => {
+    const recentMessages = messages.slice(-4);
+    return recentMessages.map((m) => `${m.role}: ${m.content}`).join('\n');
+  }, [messages]);
+
+  // Ref to hold startListening function (to avoid circular dependency)
+  const startListeningRef = useRef<((context?: string) => Promise<void>) | null>(null);
+
+  // TTS completed handler - auto-start listening
+  const handleTTSEnd = useCallback(() => {
+    if (isVoiceMode && !aiGenerating && startListeningRef.current) {
+      startListeningRef.current(buildContext());
+    }
+  }, [isVoiceMode, aiGenerating, buildContext]);
+
+  // TTS error handler
+  const handleTTSError = useCallback((err: Error) => {
+    console.error('TTS error:', err);
+    setTtsFailed(true);
+  }, []);
+
+  // Speech hook (TTS + STT)
+  const {
+    isSpeaking,
+    speak,
+    isListening,
+    isTranscribing,
+    volumeLevel,
+    startListening,
+    stopListening,
+  } = useSpeech(sessionToken, {
+    onTTSEnd: handleTTSEnd,
+    onTTSError: handleTTSError,
+  });
+
+  // Update ref after hook initialization
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
 
   // Heartbeat hook
   useHeartbeat({
@@ -148,6 +199,18 @@ export default function InterviewPage() {
               timestamp: c.created_at,
             }));
           setMessages(currentTopicConversations);
+
+          // Voice mode: Mark as reconnected if there are existing messages
+          if (isVoiceMode && currentTopicConversations.length > 0) {
+            setReconnected(true);
+            // Get last AI question for display if TTS fails
+            const lastAiMessage = currentTopicConversations
+              .filter((m) => m.role === 'ai')
+              .pop();
+            if (lastAiMessage) {
+              setCurrentQuestion(lastAiMessage.content);
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to initialize interview:', err);
@@ -158,7 +221,7 @@ export default function InterviewPage() {
     };
 
     initializeInterview();
-  }, [sessionToken, router, setInterviewState, setMessages]);
+  }, [sessionToken, router, setInterviewState, setMessages, isVoiceMode]);
 
   // Handle answer submission
   const handleSubmitAnswer = async (answer: string) => {
@@ -192,6 +255,19 @@ export default function InterviewPage() {
       };
       addMessage(aiMessage);
 
+      // Voice mode: Play TTS for AI question
+      if (isVoiceMode && response.nextQuestion) {
+        setCurrentQuestion(response.nextQuestion);
+        setTtsFailed(false);
+        try {
+          await speak(response.nextQuestion);
+          // Note: startListening will be called in handleTTSEnd callback
+        } catch {
+          // TTS failed - handleTTSError will set ttsFailed=true
+          console.error('TTS playback failed, will show manual start');
+        }
+      }
+
       // Mark topic as started if not already
       if (interviewState && !currentTopic?.started) {
         const updatedTopicsState = [...topicsState];
@@ -213,10 +289,32 @@ export default function InterviewPage() {
     }
   };
 
-  // Handle typing state change
+  // Handle typing state change (chat mode only)
   const handleTypingChange = (isTyping: boolean) => {
     setIsTyping(isTyping);
   };
+
+  // Handle voice answer completion (voice mode only)
+  const handleVoiceComplete = useCallback(async () => {
+    if (!isVoiceMode || isSubmittingRef.current) return;
+
+    try {
+      // Stop listening and get transcribed text
+      const transcribedText = await stopListening();
+
+      if (transcribedText && transcribedText.trim()) {
+        // Reset voice state flags
+        setReconnected(false);
+        setTtsFailed(false);
+
+        // Submit the transcribed answer
+        await handleSubmitAnswer(transcribedText);
+      }
+    } catch (error) {
+      console.error('Voice answer completion failed:', error);
+      setError('음성 변환에 실패했습니다. 다시 시도해주세요.');
+    }
+  }, [isVoiceMode, stopListening, handleSubmitAnswer]);
 
   // Loading state
   if (isLoading) {
@@ -297,13 +395,29 @@ export default function InterviewPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Chat Input */}
-      <ChatInterface
-        onSubmit={handleSubmitAnswer}
-        disabled={aiGenerating}
-        onTypingChange={handleTypingChange}
-        placeholder="답변을 입력하세요..."
-      />
+      {/* Input Interface - Voice or Chat mode */}
+      {isVoiceMode ? (
+        <VoiceInterface
+          isSpeaking={isSpeaking}
+          isListening={isListening}
+          isTranscribing={isTranscribing}
+          isAiGenerating={aiGenerating}
+          volumeLevel={volumeLevel}
+          onCompleteAnswer={handleVoiceComplete}
+          disabled={aiGenerating || isTranscribing}
+          ttsFailed={ttsFailed}
+          currentQuestion={currentQuestion ?? undefined}
+          reconnected={reconnected}
+          onStartListening={() => startListening(buildContext())}
+        />
+      ) : (
+        <ChatInterface
+          onSubmit={handleSubmitAnswer}
+          disabled={aiGenerating}
+          onTypingChange={handleTypingChange}
+          placeholder="답변을 입력하세요..."
+        />
+      )}
     </div>
   );
 }

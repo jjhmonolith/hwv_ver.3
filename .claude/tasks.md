@@ -1,9 +1,9 @@
 # HW Validator Ver.3 - Progress Tracker
 
 ## Current Status
-- **Active Phase**: Phase 4b (Voice Interview) 대기
-- **Progress**: 4/7 Phases 완료
-- **Last Updated**: 2026-01-26 22:50
+- **Active Phase**: Phase 5 (Reconnection) 대기
+- **Progress**: 5/7 Phases 완료
+- **Last Updated**: 2026-01-27 01:00
 
 ---
 
@@ -16,9 +16,38 @@
 | 2 | Teacher Flow | 12/12 | ✅ 완료 |
 | 3 | Student Join | 8/8 | ✅ 완료 |
 | 4a | Chat Interview | 12/12 | ✅ 완료 |
-| 4b | Voice Interview | 0/6 | ⬜ 대기 |
+| 4b | Voice Interview | 5/5 | ✅ 완료 |
 | 5 | Reconnection | 0/4 | ⬜ 대기 |
 | 6 | Monitoring | 0/3 | ⬜ 대기 |
+
+---
+
+## Phase 4b 구현 완료 (2026-01-27)
+
+### 구현된 파일 (5개)
+| 파일 | 설명 | 상태 |
+|------|------|------|
+| `backend/src/services/speech.ts` | ElevenLabs TTS + Whisper STT | ✅ |
+| `backend/src/routes/speech.ts` | Speech API 엔드포인트 | ✅ |
+| `frontend/hooks/useSpeech.ts` | TTS/STT 훅 | ✅ |
+| `frontend/components/interview/VoiceInterface.tsx` | 음성 모드 UI | ✅ |
+| `frontend/components/interview/VolumeVisualizer.tsx` | 볼륨 시각화 | ✅ |
+
+### 수정된 파일 (5개)
+| 파일 | 수정 내용 | 상태 |
+|------|----------|------|
+| `backend/src/index.ts` | speech 라우트 등록 | ✅ |
+| `backend/.env` | ELEVENLABS 환경변수 | ✅ |
+| `frontend/app/interview/start/page.tsx` | 마이크 권한 사전 요청 | ✅ |
+| `frontend/app/interview/page.tsx` | 음성 모드 통합 | ✅ |
+| `frontend/hooks/useInterviewTimer.ts` | TTS 중 타이머 정지 | ✅ |
+
+### 핵심 정책 변경사항
+- **마이크 시작**: 버튼 클릭 → **AI 질문 끝나면 자동 시작**
+- **타이머 (녹음 중)**: 정지 → **작동** (학생 답변 시간)
+- **마이크 권한**: 인터뷰 중 → **준비 화면에서 사전 요청**
+- **권한 없으면**: 에러 표시 → **인터뷰 시작 불가** (채팅만 가능)
+- **RecordButton.tsx**: **제거됨** (자동 마이크로 불필요)
 
 ---
 
@@ -67,7 +96,7 @@
 | 2 | `/teacher/login`, `/teacher/dashboard` | 로그인 폼, 세션 목록 |
 | 3 | `/join`, `/join/[code]`, `/interview/upload` | 코드 입력, 파일 업로드 |
 | 4a | `/interview` | 채팅 입력, 메시지 표시, 타이머 |
-| 4b | `/interview` | 녹음 버튼, TTS 재생 |
+| 4b | `/interview` | TTS 재생, 마이크 녹음, 볼륨 표시 |
 | 5 | `/interview/transition`, `/interview/complete` | 전환 동작, 결과 표시 |
 | 6 | `/teacher/sessions/[id]` | 참가자 상세, 대화 기록 |
 
@@ -89,6 +118,13 @@
 
 | Date | Time | Phase | Action | Status |
 |------|------|-------|--------|--------|
+| 2026-01-27 | 01:00 | 4b | **Phase 4b 완료** - 음성 인터뷰 구현, TypeScript 타입 체크 통과 | ✅ |
+| 2026-01-27 | 00:50 | 4b | 문서 업데이트 - phase4b-voice.md, tasks.md | ✅ |
+| 2026-01-27 | 00:40 | 4b | TypeScript 타입 체크 통과 (Backend + Frontend) | ✅ |
+| 2026-01-27 | 00:30 | 4b | Frontend 음성 모드 통합 (interview/page.tsx, start/page.tsx) | ✅ |
+| 2026-01-27 | 00:20 | 4b | Frontend 컴포넌트 생성 (VoiceInterface, VolumeVisualizer) | ✅ |
+| 2026-01-27 | 00:10 | 4b | Frontend useSpeech 훅 구현 (TTS/STT) | ✅ |
+| 2026-01-27 | 00:00 | 4b | Backend speech 서비스/라우트 구현 (ElevenLabs + Whisper) | ✅ |
 | 2026-01-26 | 03:45 | 4a | **Phase 4a 완료** - Playwright E2E 테스트 통과, SQL 버그 수정 | ✅ |
 | 2026-01-26 | 03:40 | 4a | 버그 수정 - SQL 예약어 'is' → 'ist' (interview.ts GET /state) | ✅ |
 | 2026-01-26 | 03:30 | 4a | Git 커밋/푸시 (a78342e) - Chat Interview 12개 파일 | ✅ |
@@ -153,7 +189,7 @@
 | [phase2-teacher.md](phases/phase2-teacher.md) | 12 | auth.ts, sessions.ts |
 | [phase3-student.md](phases/phase3-student.md) | 8 | join.ts, llm.ts |
 | [phase4a-chat.md](phases/phase4a-chat.md) | 6 | interview.ts, Timer.tsx |
-| [phase4b-voice.md](phases/phase4b-voice.md) | 6 | useSpeech.ts, speech.ts |
+| [phase4b-voice.md](phases/phase4b-voice.md) | 5 | useSpeech.ts, speech.ts |
 | [phase5-reconnection.md](phases/phase5-reconnection.md) | 4 | disconnectChecker.ts |
 | [phase6-monitoring.md](phases/phase6-monitoring.md) | 3 | ParticipantDetail.tsx |
 
@@ -161,7 +197,7 @@
 
 ## Quick Stats
 
-- **총 예상 파일**: 55개 (Backend 17 + Frontend 20 + Docs 18)
+- **총 예상 파일**: 54개 (Backend 17 + Frontend 19 + Docs 18) - RecordButton 제거
 - **핵심 파일 5개**:
   1. `backend/src/db/schema.sql` - DB 기반
   2. `backend/src/routes/interview.ts` - 인터뷰 로직
@@ -193,8 +229,14 @@
 - OpenAI API 속도 제한 → 재시도 로직 필요
 - ElevenLabs 비용 → 캐싱 권장
 - 타이머 동기화 → 서버 권위 시간 사용
-- 음성 모드 → 채팅 완료 후 구현
+- 음성 모드 → 마이크 권한 준비 화면에서 요청
+
+### Phase 4b 특이사항
+- ElevenLabs API: `modelId`, `outputFormat` (camelCase 필수)
+- Buffer → File: Uint8Array 변환 필요 (호환성)
+- 마이크 자동 시작: AI 질문 끝나면 즉시 활성화
+- 녹음 중 타이머: 학생 답변 시간으로 작동
 
 ---
 
-마지막 업데이트: 2026-01-26 00:40
+마지막 업데이트: 2026-01-27 01:00

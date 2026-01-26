@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Mic,
+  MicOff,
   MessageSquare,
   Clock,
   FileText,
@@ -12,11 +13,15 @@ import {
   Loader2,
   ArrowRight,
   ArrowLeft,
+  XCircle,
+  Check,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useStudentStore, Topic } from '@/lib/store';
+import { requestMicrophonePermission } from '@/hooks/useSpeech';
 
 type InterviewMode = 'voice' | 'chat';
+type MicPermission = 'pending' | 'granted' | 'denied' | 'checking';
 
 export default function StartPage() {
   const router = useRouter();
@@ -27,6 +32,7 @@ export default function StartPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirmStart, setConfirmStart] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [micPermission, setMicPermission] = useState<MicPermission>('pending');
 
   // Track hydration
   useEffect(() => {
@@ -59,6 +65,30 @@ export default function StartPage() {
       setSelectedMode(availableModes[0]);
     }
   }, [availableModes]);
+
+  // Handle voice mode selection with microphone permission request
+  const handleVoiceModeSelect = async () => {
+    setConfirmStart(false);
+    setError(null);
+    setMicPermission('checking');
+
+    const granted = await requestMicrophonePermission();
+
+    if (granted) {
+      setMicPermission('granted');
+      setSelectedMode('voice');
+    } else {
+      setMicPermission('denied');
+      setError('마이크 권한이 필요합니다. 채팅 모드를 선택해주세요.');
+    }
+  };
+
+  // Handle chat mode selection
+  const handleChatModeSelect = () => {
+    setSelectedMode('chat');
+    setConfirmStart(false);
+    setError(null);
+  };
 
   // Handle interview start
   const handleStart = async () => {
@@ -199,26 +229,53 @@ export default function StartPage() {
             <div className="grid grid-cols-2 gap-4">
               {/* Voice Mode */}
               <button
-                onClick={() => {
-                  setSelectedMode('voice');
-                  setConfirmStart(false);
-                }}
+                onClick={handleVoiceModeSelect}
+                disabled={micPermission === 'checking'}
                 className={`
-                  p-4 rounded-xl border-2 text-left transition-all
+                  p-4 rounded-xl border-2 text-left transition-all relative
                   ${
                     selectedMode === 'voice'
                       ? 'border-blue-500 bg-blue-50'
+                      : micPermission === 'denied'
+                      ? 'border-red-300 bg-red-50'
                       : 'border-slate-200 hover:border-slate-300'
                   }
+                  ${micPermission === 'checking' ? 'opacity-70 cursor-wait' : ''}
                 `}
               >
+                {/* Permission status indicator */}
+                {micPermission === 'granted' && (
+                  <div className="absolute top-2 right-2">
+                    <Check className="h-5 w-5 text-green-500" />
+                  </div>
+                )}
+                {micPermission === 'denied' && (
+                  <div className="absolute top-2 right-2">
+                    <XCircle className="h-5 w-5 text-red-500" />
+                  </div>
+                )}
+                {micPermission === 'checking' && (
+                  <div className="absolute top-2 right-2">
+                    <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+                  </div>
+                )}
                 <div
                   className={`
                     w-12 h-12 rounded-lg flex items-center justify-center mb-3
-                    ${selectedMode === 'voice' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-500'}
+                    ${
+                      selectedMode === 'voice'
+                        ? 'bg-blue-500 text-white'
+                        : micPermission === 'denied'
+                        ? 'bg-red-100 text-red-500'
+                        : 'bg-slate-100 text-slate-500'
+                    }
                   `}
                 >
-                  <Mic className="h-6 w-6" />
+                  {micPermission === 'denied' ? (
+                    <MicOff className="h-6 w-6" />
+                  ) : (
+                    <Mic className="h-6 w-6" />
+                  )}
                 </div>
                 <p className="font-semibold text-slate-900 mb-1">음성 인터뷰</p>
                 <p className="text-sm text-slate-500">
@@ -228,10 +285,7 @@ export default function StartPage() {
 
               {/* Chat Mode */}
               <button
-                onClick={() => {
-                  setSelectedMode('chat');
-                  setConfirmStart(false);
-                }}
+                onClick={handleChatModeSelect}
                 className={`
                   p-4 rounded-xl border-2 text-left transition-all
                   ${
@@ -321,7 +375,7 @@ export default function StartPage() {
 
           <button
             onClick={handleStart}
-            disabled={!selectedMode || isStarting}
+            disabled={!selectedMode || isStarting || (selectedMode === 'voice' && micPermission !== 'granted')}
             className={`
               flex-1 flex items-center justify-center gap-2 py-3 px-6 font-semibold rounded-xl transition-all
               ${
