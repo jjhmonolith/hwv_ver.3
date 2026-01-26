@@ -286,9 +286,9 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
     const result = await query(
       `SELECT
         sp.status, sp.analyzed_topics, sp.chosen_interview_mode,
-        is.current_topic_index, is.current_phase, is.topics_state, is.topic_started_at
+        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at
        FROM student_participants sp
-       LEFT JOIN interview_states is ON sp.id = is.participant_id
+       LEFT JOIN interview_states ist ON sp.id = ist.participant_id
        WHERE sp.id = $1`,
       [req.participant.id]
     );
