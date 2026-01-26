@@ -3,7 +3,7 @@
 ## Current Status
 - **Active Phase**: Phase 4a (Chat Interview) 대기
 - **Progress**: 3/7 Phases 완료
-- **Last Updated**: 2026-01-25 03:20
+- **Last Updated**: 2026-01-26 00:40
 
 ---
 
@@ -54,12 +54,28 @@
 | 5 | `/interview/transition`, `/interview/complete` | 전환 동작, 결과 표시 |
 | 6 | `/teacher/sessions/[id]` | 참가자 상세, 대화 기록 |
 
+### Phase 3 E2E 테스트 (구현 완료)
+
+| 파일 | 테스트 수 | 검증 항목 |
+|------|----------|----------|
+| `01-basic-flow.spec.ts` | 6 | 기본 참가 플로우 (코드 입력→이름 입력→업로드) |
+| `02-refresh.spec.ts` | 7 | 새로고침 시 상태 유지, localStorage 일관성 |
+| `03-reconnection.spec.ts` | 11 | 재접속 토큰 저장/복구, API 응답 검증 |
+| `04-error-cases.spec.ts` | 13 | 잘못된 코드, 종료된 세션, 중복 참가 등 |
+| `05-hydration.spec.ts` | 9 | Zustand hydration, SSR/CSR 동기화 |
+
+**테스트 실행**: `cd frontend && NODE_ENV=test npx playwright test`
+
 ---
 
 ## Recent Activity Log
 
 | Date | Time | Phase | Action | Status |
 |------|------|-------|--------|--------|
+| 2026-01-26 | 00:40 | 3 | **E2E 테스트 스위트 완성** - 46개 테스트 전체 통과, Git 푸시 | ✅ |
+| 2026-01-26 | 00:30 | 3 | 버그 수정 - /reconnect 라우트 순서, SQL alias 'is'→'ist' | ✅ |
+| 2026-01-26 | 00:20 | 3 | 테스트 환경 rate limiting 비활성화 (NODE_ENV=test) | ✅ |
+| 2026-01-26 | 00:00 | 3 | Playwright 테스트 5개 파일 작성 (46개 테스트 케이스) | ✅ |
 | 2026-01-25 | 03:20 | 3 | **Phase 3 완료** - Playwright E2E 테스트 통과, Git 커밋/푸시 | ✅ |
 | 2026-01-25 | 03:15 | 3 | 버그 수정 - Zustand hydration, 세션 재연결 중복 호출 | ✅ |
 | 2026-01-25 | 03:10 | 3 | PDF 업로드 및 OpenAI 분석 테스트 성공 | ✅ |
@@ -157,4 +173,4 @@
 
 ---
 
-마지막 업데이트: 2026-01-25 03:20
+마지막 업데이트: 2026-01-26 00:40
