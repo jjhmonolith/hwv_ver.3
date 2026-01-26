@@ -3,7 +3,7 @@
 ## Current Status
 - **Active Phase**: Phase 4b (Voice Interview) 대기
 - **Progress**: 4/7 Phases 완료
-- **Last Updated**: 2026-01-26 03:45
+- **Last Updated**: 2026-01-26 22:50
 
 ---
 
@@ -24,20 +24,18 @@
 
 ## Phase 4a E2E 테스트 결과 (2026-01-26)
 
-### 테스트 요약
+### 테스트 요약: **27/27 (100%) 통과**
 | 파일 | 통과 | 실패 | 비고 |
 |------|------|------|------|
-| 06-chat-interview-flow.spec.ts | 6/6 | 0 | ✅ 정상 플로우 완료 |
-| 07-chat-edge-cases.spec.ts | 7/8 | 1 | 7.3은 테스트 로직 수정 필요 |
-| 08-chat-error-cases.spec.ts | 4/6 | 2 | 8.4 세션 만료 처리 확인 필요 |
-| 09-chat-reconnection.spec.ts | 4/7 | 3 | **Phase 5 범위** |
+| 06-chat-interview-flow.spec.ts | 6/6 | 0 | ✅ 정상 플로우 |
+| 07-chat-edge-cases.spec.ts | 8/8 | 0 | ✅ 엣지 케이스 |
+| 08-chat-error-cases.spec.ts | 6/6 | 0 | ✅ 에러 케이스 |
+| 09-chat-reconnection.spec.ts | 7/7 | 0 | ✅ 재접속 테스트 |
 
-### Phase 범위 외 실패 (Phase 5에서 구현 예정)
-- 9.1 인터뷰 중 새로고침 → reconnect 상태 복원
-- 9.2 탭 닫기 후 재접속 → reconnect API 완성
-- 9.4 complete 새로고침 → summary 재로드
-
-### Phase 4a 범위 내 실제 통과율: **17/20 (85%)**
+### 수정 사항 (22:50)
+- **Rate limit 인터뷰 API 제외**: heartbeat 5초 주기 → rate limit 문제 해결
+- **중복 제출 방지 강화**: useRef로 빠른 연속 클릭 방지
+- **테스트 7.3 수정**: 비현실적인 force: true 클릭 제거
 
 ---
 

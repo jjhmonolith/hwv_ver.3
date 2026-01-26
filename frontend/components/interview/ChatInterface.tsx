@@ -22,6 +22,8 @@ export function ChatInterface({
   const [input, setInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // 빠른 연속 클릭 방지를 위한 ref (React 상태는 비동기라 즉시 반영 안됨)
+  const isSubmittingRef = useRef(false);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -39,8 +41,11 @@ export function ChatInterface({
 
   const handleSubmit = async () => {
     const trimmedInput = input.trim();
-    if (!trimmedInput || isSubmitting || disabled) return;
+    // ref로 즉시 체크하여 빠른 연속 클릭 방지
+    if (!trimmedInput || isSubmittingRef.current || disabled) return;
 
+    // ref와 state 모두 업데이트
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       await onSubmit(trimmedInput);
@@ -54,6 +59,7 @@ export function ChatInterface({
     } catch (error) {
       console.error('Failed to submit answer:', error);
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };

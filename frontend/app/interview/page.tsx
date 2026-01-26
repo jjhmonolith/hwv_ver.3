@@ -36,6 +36,8 @@ export default function InterviewPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 빠른 연속 클릭 방지 (React 상태는 비동기라 즉시 반영 안됨)
+  const isSubmittingRef = useRef(false);
 
   // Current topic info
   const currentTopicIndex = interviewState?.currentTopicIndex ?? 0;
@@ -160,7 +162,13 @@ export default function InterviewPage() {
 
   // Handle answer submission
   const handleSubmitAnswer = async (answer: string) => {
-    if (!sessionToken || aiGenerating) return;
+    // ref로 즉시 체크하여 빠른 연속 클릭 방지
+    if (!sessionToken || isSubmittingRef.current) return;
+
+    // ref와 state 모두 업데이트
+    isSubmittingRef.current = true;
+    setAiGenerating(true);
+    setTimerAiGenerating(true);
 
     // Add student message
     const studentMessage: Message = {
@@ -169,10 +177,6 @@ export default function InterviewPage() {
       timestamp: new Date().toISOString(),
     };
     addMessage(studentMessage);
-
-    // Start AI generation (pause timer)
-    setAiGenerating(true);
-    setTimerAiGenerating(true);
 
     try {
       const response = await api.interview.submitAnswer(sessionToken, answer) as {
@@ -203,6 +207,7 @@ export default function InterviewPage() {
       console.error('Failed to submit answer:', err);
       setError('답변 제출에 실패했습니다. 다시 시도해주세요.');
     } finally {
+      isSubmittingRef.current = false;
       setAiGenerating(false);
       setTimerAiGenerating(false);
     }
