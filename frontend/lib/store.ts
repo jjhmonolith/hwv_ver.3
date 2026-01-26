@@ -176,6 +176,7 @@ interface StudentState {
   setSessionToken: (token: string | null) => void;
   setSessionInfo: (info: StudentState['sessionInfo']) => void;
   setInterviewState: (state: InterviewState | null) => void;
+  updateTopicTimeLeft: (topicIndex: number, timeLeft: number) => void;
   addMessage: (message: Message) => void;
   setMessages: (messages: Message[]) => void;
   clearSession: () => void;
@@ -197,6 +198,20 @@ export const useStudentStore = create<StudentState>()(
       setSessionToken: (sessionToken) => set({ sessionToken }),
       setSessionInfo: (sessionInfo) => set({ sessionInfo }),
       setInterviewState: (interviewState) => set({ interviewState }),
+
+      updateTopicTimeLeft: (topicIndex, timeLeft) =>
+        set((state) => {
+          if (!state.interviewState) return state;
+          const updatedTopicsState = state.interviewState.topicsState.map((topic) =>
+            topic.index === topicIndex ? { ...topic, timeLeft } : topic
+          );
+          return {
+            interviewState: {
+              ...state.interviewState,
+              topicsState: updatedTopicsState,
+            },
+          };
+        }),
 
       addMessage: (message) =>
         set((state) => ({

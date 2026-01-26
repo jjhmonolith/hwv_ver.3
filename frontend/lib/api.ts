@@ -224,18 +224,35 @@ export const api = {
         headers: { 'X-Session-Token': sessionToken },
       }),
     submitAnswer: (sessionToken: string, answer: string) =>
-      request<{ state: unknown }>('/api/interview/answer', {
+      request<{ nextQuestion: string; turnIndex: number }>('/api/interview/answer', {
         method: 'POST',
         body: { answer },
         headers: { 'X-Session-Token': sessionToken },
       }),
     nextTopic: (sessionToken: string) =>
-      request<{ state: unknown }>('/api/interview/next-topic', {
+      request<{
+        currentTopicIndex: number;
+        currentTopic: { index: number; title: string; totalTime: number };
+        firstQuestion: string;
+        topicsState: Array<{
+          index: number;
+          title: string;
+          totalTime: number;
+          timeLeft: number;
+          status: string;
+          started: boolean;
+        }>;
+      }>('/api/interview/next-topic', {
         method: 'POST',
         headers: { 'X-Session-Token': sessionToken },
       }),
     complete: (sessionToken: string) =>
       request<{ summary: unknown }>('/api/interview/complete', {
+        method: 'POST',
+        headers: { 'X-Session-Token': sessionToken },
+      }),
+    topicTimeout: (sessionToken: string) =>
+      request<{ state: unknown }>('/api/interview/topic-timeout', {
         method: 'POST',
         headers: { 'X-Session-Token': sessionToken },
       }),

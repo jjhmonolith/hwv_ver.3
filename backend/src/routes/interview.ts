@@ -3,7 +3,7 @@ import multer from 'multer';
 import pdfParse from 'pdf-parse';
 import { query } from '../db/connection.js';
 import { studentAuthMiddleware } from '../middleware/studentAuth.js';
-import { analyzeTopics, generateQuestion } from '../services/llm.js';
+import { analyzeTopics, generateQuestion, evaluateInterview } from '../services/llm.js';
 
 const router = Router();
 
@@ -329,6 +329,500 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Get state error:', error);
     res.status(500).json({ success: false, error: 'Failed to get interview state' });
+  }
+});
+
+/**
+ * POST /api/interview/heartbeat
+ * Keep connection alive and sync server time
+ */
+router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    // Update last_active_at
+    await query(
+      'UPDATE student_participants SET last_active_at = NOW() WHERE id = $1',
+      [req.participant.id]
+    );
+
+    // Get current interview state
+    const result = await query(
+      `SELECT
+        sp.status,
+        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at
+       FROM student_participants sp
+       LEFT JOIN interview_states ist ON sp.id = ist.participant_id
+       WHERE sp.id = $1`,
+      [req.participant.id]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Participant not found' });
+      return;
+    }
+
+    const data = result.rows[0];
+    const topicsState = data.topics_state || [];
+    const currentTopicIndex = data.current_topic_index || 0;
+    const currentTopic = topicsState[currentTopicIndex];
+
+    // Calculate remaining time based on server time
+    let remainingTime = currentTopic?.timeLeft || 0;
+    let timeExpired = false;
+
+    if (data.topic_started_at && data.current_phase === 'topic_active') {
+      const elapsedSeconds = Math.floor(
+        (Date.now() - new Date(data.topic_started_at).getTime()) / 1000
+      );
+      remainingTime = Math.max(0, (currentTopic?.totalTime || 180) - elapsedSeconds);
+      timeExpired = remainingTime === 0;
+    }
+
+    // Check if should show transition page
+    const showTransitionPage = timeExpired || data.current_phase === 'topic_transition';
+
+    res.status(200).json({
+      success: true,
+      data: {
+        status: data.status,
+        currentTopicIndex,
+        currentPhase: data.current_phase,
+        remainingTime,
+        timeExpired,
+        showTransitionPage,
+        topicsState,
+      },
+    });
+  } catch (error) {
+    console.error('Heartbeat error:', error);
+    res.status(500).json({ success: false, error: 'Failed to process heartbeat' });
+  }
+});
+
+/**
+ * POST /api/interview/answer
+ * Submit student answer and get next AI question
+ */
+router.post('/answer', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    const { answer } = req.body;
+
+    if (!answer || typeof answer !== 'string' || answer.trim().length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'Answer is required',
+      });
+      return;
+    }
+
+    // Get current state and participant data
+    const stateResult = await query(
+      `SELECT
+        sp.extracted_text, sp.analyzed_topics,
+        ist.current_topic_index, ist.current_phase, ist.topics_state
+       FROM student_participants sp
+       JOIN interview_states ist ON sp.id = ist.participant_id
+       WHERE sp.id = $1`,
+      [req.participant.id]
+    );
+
+    if (stateResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Interview state not found' });
+      return;
+    }
+
+    const state = stateResult.rows[0];
+    const currentTopicIndex = state.current_topic_index;
+    const analyzedTopics = typeof state.analyzed_topics === 'string'
+      ? JSON.parse(state.analyzed_topics)
+      : state.analyzed_topics;
+
+    // Get current turn index
+    const turnResult = await query(
+      `SELECT COALESCE(MAX(turn_index), -1) as max_turn
+       FROM interview_conversations
+       WHERE participant_id = $1 AND topic_index = $2`,
+      [req.participant.id, currentTopicIndex]
+    );
+    const nextTurnIndex = turnResult.rows[0].max_turn + 1;
+
+    // Save student answer
+    await query(
+      `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
+       VALUES ($1, $2, $3, 'student', $4)`,
+      [req.participant.id, currentTopicIndex, nextTurnIndex, answer.trim()]
+    );
+
+    // Get previous conversations for context
+    const conversationsResult = await query(
+      `SELECT role, content FROM interview_conversations
+       WHERE participant_id = $1 AND topic_index = $2
+       ORDER BY turn_index ASC`,
+      [req.participant.id, currentTopicIndex]
+    );
+
+    // Generate next question
+    let nextQuestion: string;
+    try {
+      const prevConversations = (conversationsResult.rows as Array<{ role: string; content: string }>)
+        .map((c) => ({
+          role: c.role as 'ai' | 'student',
+          content: c.content,
+        }));
+
+      nextQuestion = await generateQuestion({
+        topic: analyzedTopics[currentTopicIndex],
+        assignmentText: state.extracted_text,
+        previousConversation: prevConversations,
+      });
+    } catch (error) {
+      console.error('Failed to generate next question:', error);
+      nextQuestion = '이 부분에 대해 더 자세히 설명해 주시겠어요?';
+    }
+
+    // Save AI question
+    const aiTurnIndex = nextTurnIndex + 1;
+    await query(
+      `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
+       VALUES ($1, $2, $3, 'ai', $4)`,
+      [req.participant.id, currentTopicIndex, aiTurnIndex, nextQuestion]
+    );
+
+    // Update topics_state to mark topic as started
+    const topicsState = state.topics_state || [];
+    if (topicsState[currentTopicIndex] && !topicsState[currentTopicIndex].started) {
+      topicsState[currentTopicIndex].started = true;
+      await query(
+        `UPDATE interview_states
+         SET topics_state = $1, topic_started_at = COALESCE(topic_started_at, NOW())
+         WHERE participant_id = $2`,
+        [JSON.stringify(topicsState), req.participant.id]
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Answer submitted',
+        nextQuestion,
+        turnIndex: aiTurnIndex,
+      },
+    });
+  } catch (error) {
+    console.error('Submit answer error:', error);
+    res.status(500).json({ success: false, error: 'Failed to submit answer' });
+  }
+});
+
+/**
+ * POST /api/interview/next-topic
+ * Move to next topic
+ */
+router.post('/next-topic', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    // Get current state
+    const stateResult = await query(
+      `SELECT
+        sp.extracted_text, sp.analyzed_topics,
+        ist.current_topic_index, ist.topics_state,
+        s.topic_duration
+       FROM student_participants sp
+       JOIN interview_states ist ON sp.id = ist.participant_id
+       JOIN assignment_sessions s ON sp.session_id = s.id
+       WHERE sp.id = $1`,
+      [req.participant.id]
+    );
+
+    if (stateResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Interview state not found' });
+      return;
+    }
+
+    const state = stateResult.rows[0];
+    const currentTopicIndex = state.current_topic_index;
+    const topicsState = state.topics_state || [];
+    const analyzedTopics = typeof state.analyzed_topics === 'string'
+      ? JSON.parse(state.analyzed_topics)
+      : state.analyzed_topics;
+    const topicDuration = state.topic_duration;
+
+    // Check if this is the last topic
+    const nextTopicIndex = currentTopicIndex + 1;
+    if (nextTopicIndex >= analyzedTopics.length) {
+      res.status(200).json({
+        success: true,
+        data: {
+          message: 'Interview completed',
+          shouldFinalize: true,
+        },
+      });
+      return;
+    }
+
+    // Mark current topic as done
+    if (topicsState[currentTopicIndex]) {
+      topicsState[currentTopicIndex].status = 'done';
+      topicsState[currentTopicIndex].timeLeft = 0;
+    }
+
+    // Activate next topic
+    if (topicsState[nextTopicIndex]) {
+      topicsState[nextTopicIndex].status = 'active';
+      topicsState[nextTopicIndex].timeLeft = topicDuration;
+      topicsState[nextTopicIndex].started = false;
+    }
+
+    // Generate first question for new topic
+    let firstQuestion: string;
+    try {
+      firstQuestion = await generateQuestion({
+        topic: analyzedTopics[nextTopicIndex],
+        assignmentText: state.extracted_text,
+        previousConversation: [],
+      });
+    } catch (error) {
+      console.error('Failed to generate first question for new topic:', error);
+      firstQuestion = `${analyzedTopics[nextTopicIndex].title}에 대해 설명해 주세요.`;
+    }
+
+    // Update interview state
+    await query(
+      `UPDATE interview_states
+       SET current_topic_index = $1, current_phase = 'topic_intro', topics_state = $2, topic_started_at = NULL
+       WHERE participant_id = $3`,
+      [nextTopicIndex, JSON.stringify(topicsState), req.participant.id]
+    );
+
+    // Save first question
+    await query(
+      `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
+       VALUES ($1, $2, 0, 'ai', $3)`,
+      [req.participant.id, nextTopicIndex, firstQuestion]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Moving to next topic',
+        currentTopicIndex: nextTopicIndex,
+        currentTopic: {
+          index: nextTopicIndex,
+          title: analyzedTopics[nextTopicIndex].title,
+          description: analyzedTopics[nextTopicIndex].description,
+          totalTime: topicDuration,
+        },
+        firstQuestion,
+        topicsState,
+      },
+    });
+  } catch (error) {
+    console.error('Next topic error:', error);
+    res.status(500).json({ success: false, error: 'Failed to move to next topic' });
+  }
+});
+
+/**
+ * POST /api/interview/topic-timeout
+ * Handle topic time expiration
+ */
+router.post('/topic-timeout', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    // Get current state
+    const stateResult = await query(
+      `SELECT
+        ist.current_topic_index, ist.topics_state,
+        sp.analyzed_topics
+       FROM interview_states ist
+       JOIN student_participants sp ON ist.participant_id = sp.id
+       WHERE ist.participant_id = $1`,
+      [req.participant.id]
+    );
+
+    if (stateResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Interview state not found' });
+      return;
+    }
+
+    const state = stateResult.rows[0];
+    const currentTopicIndex = state.current_topic_index;
+    const topicsState = state.topics_state || [];
+    const analyzedTopics = typeof state.analyzed_topics === 'string'
+      ? JSON.parse(state.analyzed_topics)
+      : state.analyzed_topics;
+
+    // Mark current topic as expired
+    if (topicsState[currentTopicIndex]) {
+      topicsState[currentTopicIndex].status = 'expired';
+      topicsState[currentTopicIndex].timeLeft = 0;
+    }
+
+    // Check if last topic
+    const isLastTopic = currentTopicIndex >= analyzedTopics.length - 1;
+
+    // Update state
+    await query(
+      `UPDATE interview_states
+       SET current_phase = 'topic_transition', topics_state = $1
+       WHERE participant_id = $2`,
+      [JSON.stringify(topicsState), req.participant.id]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Topic timeout handled',
+        isLastTopic,
+        showTransitionPage: true,
+        topicsState,
+      },
+    });
+  } catch (error) {
+    console.error('Topic timeout error:', error);
+    res.status(500).json({ success: false, error: 'Failed to handle topic timeout' });
+  }
+});
+
+/**
+ * POST /api/interview/complete
+ * Complete interview and generate summary
+ */
+router.post('/complete', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    // Get all conversations and analyzed topics
+    const dataResult = await query(
+      `SELECT
+        sp.extracted_text, sp.analyzed_topics,
+        ist.topics_state
+       FROM student_participants sp
+       LEFT JOIN interview_states ist ON sp.id = ist.participant_id
+       WHERE sp.id = $1`,
+      [req.participant.id]
+    );
+
+    if (dataResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Participant not found' });
+      return;
+    }
+
+    const data = dataResult.rows[0];
+    const analyzedTopics = typeof data.analyzed_topics === 'string'
+      ? JSON.parse(data.analyzed_topics)
+      : data.analyzed_topics;
+
+    // Get all conversations grouped by topic
+    const conversationsResult = await query(
+      `SELECT topic_index, turn_index, role, content
+       FROM interview_conversations
+       WHERE participant_id = $1
+       ORDER BY topic_index ASC, turn_index ASC`,
+      [req.participant.id]
+    );
+
+    // Group conversations by topic with proper format for evaluateInterview
+    const conversationsForEval: Array<{
+      topicIndex: number;
+      topicTitle: string;
+      messages: Array<{ role: 'ai' | 'student'; content: string }>;
+    }> = [];
+
+    const allConversations = conversationsResult.rows as Array<{
+      topic_index: number;
+      turn_index: number;
+      role: string;
+      content: string;
+    }>;
+
+    for (let i = 0; i < analyzedTopics.length; i++) {
+      const topicConversations = allConversations
+        .filter((c) => c.topic_index === i)
+        .map((c) => ({
+          role: c.role as 'ai' | 'student',
+          content: c.content,
+        }));
+
+      conversationsForEval.push({
+        topicIndex: i,
+        topicTitle: analyzedTopics[i].title,
+        messages: topicConversations,
+      });
+    }
+
+    // Generate evaluation summary
+    let summary;
+    try {
+      summary = await evaluateInterview(
+        data.extracted_text,
+        conversationsForEval
+      );
+    } catch (error) {
+      console.error('Failed to evaluate interview:', error);
+      summary = {
+        score: 70,
+        strengths: ['인터뷰에 참여했습니다.'],
+        weaknesses: ['평가를 완료하지 못했습니다.'],
+        overallComment: '인터뷰가 완료되었습니다. 세부 평가는 교사에게 문의하세요.',
+      };
+    }
+
+    // Update topics state to all done
+    const topicsState = data.topics_state || [];
+    for (const topic of topicsState) {
+      topic.status = 'done';
+    }
+
+    // Update participant status and save summary
+    await query(
+      `UPDATE student_participants
+       SET status = 'completed',
+           interview_ended_at = NOW(),
+           summary = $1
+       WHERE id = $2`,
+      [JSON.stringify(summary), req.participant.id]
+    );
+
+    // Update interview state
+    await query(
+      `UPDATE interview_states
+       SET current_phase = 'completed', topics_state = $1
+       WHERE participant_id = $2`,
+      [JSON.stringify(topicsState), req.participant.id]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Interview completed',
+        status: 'completed',
+        summary,
+      },
+    });
+  } catch (error) {
+    console.error('Complete interview error:', error);
+    res.status(500).json({ success: false, error: 'Failed to complete interview' });
   }
 });
 
