@@ -2,8 +2,13 @@
  * HWV Ver.3 E2E Test Helpers
  * 테스트용 세션 생성 및 관리 유틸리티
  */
+import * as fs from 'fs';
+import * as path from 'path';
 
 const API_BASE = 'http://localhost:4010/api';
+
+// 테스트용 PDF 파일 경로
+const TEST_PDF_PATH = path.resolve(__dirname, '../../../pdf for test.pdf');
 
 // Rate limit 방지를 위한 대기 시간 (ms)
 const API_DELAY = 200;
@@ -236,4 +241,236 @@ export function setStudentStorageScript(sessionToken: string, participant: objec
  */
 export function clearStudentStorageScript(): string {
   return `localStorage.removeItem('student-storage');`;
+}
+
+// ==========================================
+// Phase 4a Interview Test Helpers
+// ==========================================
+
+export interface InterviewStateResponse {
+  status: string;
+  currentTopicIndex: number;
+  currentPhase: string;
+  topicsState: Array<{
+    index: number;
+    title: string;
+    totalTime: number;
+    timeLeft: number;
+    status: string;
+    started: boolean;
+  }>;
+  conversations?: Array<{
+    topic_index: number;
+    turn_index: number;
+    role: 'ai' | 'student';
+    content: string;
+    created_at: string;
+  }>;
+}
+
+/**
+ * PDF 파일 업로드 (테스트용)
+ * 실제 PDF 파일을 읽어서 업로드합니다.
+ */
+export async function uploadTestPdf(
+  sessionToken: string,
+  pdfPath?: string
+): Promise<{ analyzedTopics: Array<{ index: number; title: string; description?: string }> }> {
+  await delay();
+
+  // 실제 PDF 파일 읽기
+  const filePath = pdfPath || TEST_PDF_PATH;
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Test PDF file not found: ${filePath}`);
+  }
+
+  const pdfBuffer = fs.readFileSync(filePath);
+  const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+
+  const formData = new FormData();
+  formData.append('file', blob, 'test-assignment.pdf');
+
+  const res = await fetch(`${API_BASE}/interview/upload`, {
+    method: 'POST',
+    headers: {
+      'X-Session-Token': sessionToken,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to upload PDF: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return {
+    analyzedTopics: data.data.analyzedTopics,
+  };
+}
+
+/**
+ * 인터뷰 시작 (모드 선택)
+ */
+export async function startInterview(
+  sessionToken: string,
+  mode: 'chat' | 'voice'
+): Promise<{
+  currentTopicIndex: number;
+  currentTopic: { index: number; title: string; totalTime: number };
+  firstQuestion: string;
+  topicsState: Array<{ index: number; title: string; status: string }>;
+}> {
+  await delay();
+
+  const res = await fetch(`${API_BASE}/interview/start`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Token': sessionToken,
+    },
+    body: JSON.stringify({ mode }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to start interview: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return data.data;
+}
+
+/**
+ * 답변 제출
+ */
+export async function submitAnswer(
+  sessionToken: string,
+  answer: string
+): Promise<{ nextQuestion: string; turnIndex: number }> {
+  await delay();
+
+  const res = await fetch(`${API_BASE}/interview/answer`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Token': sessionToken,
+    },
+    body: JSON.stringify({ answer }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to submit answer: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return {
+    nextQuestion: data.data.nextQuestion,
+    turnIndex: data.data.turnIndex,
+  };
+}
+
+/**
+ * 인터뷰 상태 조회
+ */
+export async function getInterviewState(sessionToken: string): Promise<InterviewStateResponse> {
+  await delay();
+
+  const res = await fetch(`${API_BASE}/interview/state`, {
+    method: 'GET',
+    headers: {
+      'X-Session-Token': sessionToken,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to get interview state: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return data.data;
+}
+
+/**
+ * 다음 주제로 이동
+ */
+export async function goToNextTopic(sessionToken: string): Promise<{
+  currentTopicIndex: number;
+  firstQuestion: string;
+  shouldFinalize?: boolean;
+}> {
+  await delay();
+
+  const res = await fetch(`${API_BASE}/interview/next-topic`, {
+    method: 'POST',
+    headers: {
+      'X-Session-Token': sessionToken,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to go to next topic: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return data.data;
+}
+
+/**
+ * 인터뷰 완료
+ */
+export async function completeInterview(sessionToken: string): Promise<{
+  status: string;
+  summary: {
+    score?: number;
+    strengths: string[];
+    weaknesses: string[];
+    overallComment: string;
+  };
+}> {
+  await delay();
+
+  const res = await fetch(`${API_BASE}/interview/complete`, {
+    method: 'POST',
+    headers: {
+      'X-Session-Token': sessionToken,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to complete interview: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return data.data;
+}
+
+/**
+ * Heartbeat 전송
+ */
+export async function sendHeartbeat(sessionToken: string): Promise<{
+  status: string;
+  remainingTime: number;
+  timeExpired: boolean;
+  showTransitionPage: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/interview/heartbeat`, {
+    method: 'POST',
+    headers: {
+      'X-Session-Token': sessionToken,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to send heartbeat: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return data.data;
 }
