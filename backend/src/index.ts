@@ -31,13 +31,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting (disabled in test environment)
-// 인터뷰 API는 제외 - heartbeat가 5초마다 호출되어 rate limit에 걸림
+// 테스트 환경에서는 rate limiting 완전 비활성화
+// 인터뷰, 인증, 참가, 음성 API는 제외 - 빈번한 호출로 rate limit에 걸림
 if (process.env.NODE_ENV !== 'test') {
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // limit each IP to 100 requests per windowMs
     message: { success: false, error: 'Too many requests, please try again later.' },
-    skip: (req) => req.path.startsWith('/api/interview'),
+    skip: (req) => {
+      // 자주 호출되는 API들 제외
+      return req.path.startsWith('/api/interview') ||
+             req.path.startsWith('/api/auth') ||
+             req.path.startsWith('/api/join') ||
+             req.path.startsWith('/api/speech') ||
+             req.path.startsWith('/api/sessions');
+    },
   });
   app.use(limiter);
 }

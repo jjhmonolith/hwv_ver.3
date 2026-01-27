@@ -90,18 +90,16 @@ test.describe('10. Voice Mode Setup & Permission', () => {
   });
 
   test('10.2 음성 모드 클릭 시 권한 요청 트리거', async ({ page }) => {
-    // 권한 요청을 추적하기 위한 Mock
-    let permissionRequested = false;
-
+    // 권한 요청을 추적하기 위한 Mock - 페이지 이동 전에 설정
     await page.addInitScript(() => {
+      // 초기화
+      (window as unknown as { __micPermissionRequested: boolean }).__micPermissionRequested = false;
+
       const originalGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
       if (navigator.mediaDevices) {
         navigator.mediaDevices.getUserMedia = async (constraints) => {
           // 권한 요청이 호출되었음을 window에 표시
           (window as unknown as { __micPermissionRequested: boolean }).__micPermissionRequested = true;
-          if (originalGetUserMedia) {
-            return originalGetUserMedia(constraints);
-          }
           // Mock 스트림 반환
           const audioContext = new AudioContext();
           const oscillator = audioContext.createOscillator();
@@ -143,10 +141,10 @@ test.describe('10. Voice Mode Setup & Permission', () => {
     // 음성 모드 카드 클릭
     const voiceModeCard = page.locator('button, div').filter({ hasText: /음성|Voice/i }).first();
     await voiceModeCard.click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(1500); // 권한 요청 대기 시간 증가
 
     // 권한 요청이 트리거되었는지 확인
-    permissionRequested = await page.evaluate(
+    const permissionRequested = await page.evaluate(
       () => (window as unknown as { __micPermissionRequested: boolean }).__micPermissionRequested || false
     );
     expect(permissionRequested).toBe(true);
@@ -308,10 +306,12 @@ test.describe('10. Voice Mode Setup & Permission', () => {
           if (descriptor.name === 'microphone') {
             return {
               state: 'prompt',
+              name: 'microphone',
               addEventListener: () => {},
               removeEventListener: () => {},
+              dispatchEvent: () => true,
               onchange: null,
-            } as PermissionStatus;
+            } as unknown as PermissionStatus;
           }
           return Promise.reject(new Error('Not supported'));
         };

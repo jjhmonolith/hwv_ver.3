@@ -13,6 +13,10 @@ const TEST_PDF_PATH = path.resolve(__dirname, '../../../pdf for test.pdf');
 // Rate limit 방지를 위한 대기 시간 (ms)
 const API_DELAY = 200;
 
+// 재시도 설정
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY = 1000;
+
 // 캐시된 교사 정보 (중복 로그인 방지)
 let cachedTeacher: TestTeacher | null = null;
 
@@ -21,6 +25,42 @@ let cachedTeacher: TestTeacher | null = null;
  */
 async function delay(ms: number = API_DELAY): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Rate limit 대응 fetch wrapper (exponential backoff)
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = MAX_RETRIES
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+
+      // 429 (Too Many Requests) 처리
+      if (res.status === 429 && attempt < maxRetries) {
+        const backoffDelay = Math.pow(2, attempt) * RETRY_BASE_DELAY;
+        console.log(`Rate limited (429). Retry ${attempt + 1}/${maxRetries} after ${backoffDelay}ms`);
+        await delay(backoffDelay);
+        continue;
+      }
+
+      return res;
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < maxRetries) {
+        const backoffDelay = Math.pow(2, attempt) * RETRY_BASE_DELAY;
+        console.log(`Network error. Retry ${attempt + 1}/${maxRetries} after ${backoffDelay}ms`);
+        await delay(backoffDelay);
+      }
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded');
 }
 
 export interface TestSession {
@@ -54,9 +94,9 @@ export async function getOrCreateTestTeacher(): Promise<TestTeacher> {
 
   await delay();
 
-  // 먼저 로그인 시도
+  // 먼저 로그인 시도 (재시도 로직 적용)
   try {
-    const loginRes = await fetch(`${API_BASE}/auth/login`, {
+    const loginRes = await fetchWithRetry(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: testEmail, password: testPassword }),
@@ -78,8 +118,8 @@ export async function getOrCreateTestTeacher(): Promise<TestTeacher> {
 
   await delay();
 
-  // 회원가입
-  const registerRes = await fetch(`${API_BASE}/auth/register`, {
+  // 회원가입 (재시도 로직 적용)
+  const registerRes = await fetchWithRetry(`${API_BASE}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -126,8 +166,8 @@ export async function createTestSession(
 
   await delay();
 
-  // 세션 생성 (draft)
-  const createRes = await fetch(`${API_BASE}/sessions`, {
+  // 세션 생성 (draft) - 재시도 로직 적용
+  const createRes = await fetchWithRetry(`${API_BASE}/sessions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -146,8 +186,8 @@ export async function createTestSession(
 
   await delay();
 
-  // 세션 활성화 (access_code 발급)
-  const activateRes = await fetch(`${API_BASE}/sessions/${sessionId}/activate`, {
+  // 세션 활성화 (access_code 발급) - 재시도 로직 적용
+  const activateRes = await fetchWithRetry(`${API_BASE}/sessions/${sessionId}/activate`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${teacherToken}`,
@@ -183,7 +223,8 @@ export async function createTestParticipant(
 ): Promise<{ sessionToken: string; participantId: string }> {
   await delay();
 
-  const res = await fetch(`${API_BASE}/join/${accessCode}`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/join/${accessCode}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -291,7 +332,8 @@ export async function uploadTestPdf(
   const formData = new FormData();
   formData.append('file', blob, 'test-assignment.pdf');
 
-  const res = await fetch(`${API_BASE}/interview/upload`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/interview/upload`, {
     method: 'POST',
     headers: {
       'X-Session-Token': sessionToken,
@@ -324,7 +366,8 @@ export async function startInterview(
 }> {
   await delay();
 
-  const res = await fetch(`${API_BASE}/interview/start`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/interview/start`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -351,7 +394,8 @@ export async function submitAnswer(
 ): Promise<{ nextQuestion: string; turnIndex: number }> {
   await delay();
 
-  const res = await fetch(`${API_BASE}/interview/answer`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/interview/answer`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -378,7 +422,8 @@ export async function submitAnswer(
 export async function getInterviewState(sessionToken: string): Promise<InterviewStateResponse> {
   await delay();
 
-  const res = await fetch(`${API_BASE}/interview/state`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/interview/state`, {
     method: 'GET',
     headers: {
       'X-Session-Token': sessionToken,
@@ -404,7 +449,8 @@ export async function goToNextTopic(sessionToken: string): Promise<{
 }> {
   await delay();
 
-  const res = await fetch(`${API_BASE}/interview/next-topic`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/interview/next-topic`, {
     method: 'POST',
     headers: {
       'X-Session-Token': sessionToken,
@@ -434,7 +480,8 @@ export async function completeInterview(sessionToken: string): Promise<{
 }> {
   await delay();
 
-  const res = await fetch(`${API_BASE}/interview/complete`, {
+  // 재시도 로직 적용
+  const res = await fetchWithRetry(`${API_BASE}/interview/complete`, {
     method: 'POST',
     headers: {
       'X-Session-Token': sessionToken,
@@ -519,10 +566,12 @@ export async function mockMicrophonePermission(page: Page, state: MicPermissionS
         if (descriptor.name === 'microphone') {
           return {
             state: permState,
+            name: 'microphone',
             addEventListener: () => {},
             removeEventListener: () => {},
+            dispatchEvent: () => true,
             onchange: null,
-          } as PermissionStatus;
+          } as unknown as PermissionStatus;
         }
         return originalQuery ? originalQuery(descriptor) : Promise.reject(new Error('Not supported'));
       };
@@ -560,11 +609,9 @@ export async function mockAudioPlayback(page: Page, options?: MockAudioOptions):
   await page.addInitScript(({ delay, shouldFail }: { delay: number; shouldFail: boolean }) => {
     const OriginalAudio = window.Audio;
 
-    // @ts-expect-error - replacing Audio constructor
-    window.Audio = function (src?: string) {
+    const MockAudio = function (this: HTMLAudioElement, src?: string) {
       const audio = new OriginalAudio(src);
 
-      const originalPlay = audio.play.bind(audio);
       audio.play = async () => {
         if (shouldFail) {
           const error = new Error('Playback failed');
@@ -583,8 +630,8 @@ export async function mockAudioPlayback(page: Page, options?: MockAudioOptions):
 
       return audio;
     };
-    // @ts-expect-error - copy prototype
-    window.Audio.prototype = OriginalAudio.prototype;
+    MockAudio.prototype = OriginalAudio.prototype;
+    (window as unknown as { Audio: typeof MockAudio }).Audio = MockAudio;
   }, { delay, shouldFail });
 }
 
@@ -622,8 +669,7 @@ export async function mockAudioContext(page: Page, volumeLevel: number = 0.5): P
 
     const OriginalAudioContext = window.AudioContext;
 
-    // @ts-expect-error - replacing AudioContext
-    window.AudioContext = class MockAudioContext extends OriginalAudioContext {
+    class MockAudioContext extends OriginalAudioContext {
       createAnalyser() {
         return new MockAnalyserNode() as unknown as AnalyserNode;
       }
@@ -631,7 +677,8 @@ export async function mockAudioContext(page: Page, volumeLevel: number = 0.5): P
       createMediaStreamSource(_stream: MediaStream) {
         return new MockMediaStreamSource() as unknown as MediaStreamAudioSourceNode;
       }
-    };
+    }
+    (window as unknown as { AudioContext: typeof MockAudioContext }).AudioContext = MockAudioContext;
   }, volumeLevel);
 }
 
@@ -819,15 +866,31 @@ export function setVoiceInterviewStorageScript(
     title: string;
     topicCount: number;
     topicDuration: number;
+  },
+  options?: {
+    firstQuestion?: string;
+    interviewState?: object;
   }
 ): string {
+  const defaultInterviewState = {
+    currentTopicIndex: 0,
+    currentPhase: 'topic_intro',
+    topicsState: [
+      { index: 0, title: '주제 1', totalTime: sessionInfo.topicDuration, timeLeft: sessionInfo.topicDuration, status: 'active', started: false },
+      { index: 1, title: '주제 2', totalTime: sessionInfo.topicDuration, timeLeft: sessionInfo.topicDuration, status: 'pending', started: false },
+    ],
+    firstQuestion: options?.firstQuestion ?? '첫 번째 테스트 질문입니다. 이 주제에 대해 설명해주세요.',
+  };
+
+  const interviewState = options?.interviewState ?? defaultInterviewState;
+
   return `
     localStorage.setItem('student-storage', JSON.stringify({
       state: {
         sessionToken: '${sessionToken}',
         participant: ${JSON.stringify({ ...participant, chosenInterviewMode: 'voice' })},
         sessionInfo: ${JSON.stringify({ ...sessionInfo, interviewMode: 'voice' })},
-        interviewState: null,
+        interviewState: ${JSON.stringify(interviewState)},
         messages: []
       },
       version: 0
@@ -910,8 +973,7 @@ export async function mockAutoplayBlocked(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const OriginalAudio = window.Audio;
 
-    // @ts-expect-error - replacing Audio constructor
-    window.Audio = function (src?: string) {
+    const MockAudio = function (this: HTMLAudioElement, src?: string) {
       const audio = new OriginalAudio(src);
 
       const originalPlay = audio.play.bind(audio);
@@ -936,8 +998,8 @@ export async function mockAutoplayBlocked(page: Page): Promise<void> {
 
       return audio;
     };
-    // @ts-expect-error - copy prototype
-    window.Audio.prototype = OriginalAudio.prototype;
+    MockAudio.prototype = OriginalAudio.prototype;
+    (window as unknown as { Audio: typeof MockAudio }).Audio = MockAudio;
   });
 }
 

@@ -45,6 +45,7 @@ export default function InterviewPage() {
   const [ttsFailed, setTtsFailed] = useState(false);
   const [reconnected, setReconnected] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState<string | null>(null);
+  const [initialTTSPlayed, setInitialTTSPlayed] = useState(false);
 
   // Check if voice mode
   const isVoiceMode = participant?.chosenInterviewMode === 'voice';
@@ -137,6 +138,42 @@ export default function InterviewPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Play initial TTS for first question (voice mode only)
+  useEffect(() => {
+    const playInitialTTS = async () => {
+      if (
+        !isLoading &&
+        isVoiceMode &&
+        !initialTTSPlayed &&
+        interviewState?.firstQuestion &&
+        messages.length === 0
+      ) {
+        setInitialTTSPlayed(true);
+        const firstQuestion = interviewState.firstQuestion;
+
+        // Add first question to messages
+        const aiMessage: Message = {
+          role: 'ai',
+          content: firstQuestion,
+          timestamp: new Date().toISOString(),
+        };
+        addMessage(aiMessage);
+        setCurrentQuestion(firstQuestion);
+
+        // Play TTS
+        try {
+          await speak(firstQuestion);
+          // Note: startListening will be called in handleTTSEnd callback
+        } catch {
+          console.error('Initial TTS failed, will show manual start');
+          setTtsFailed(true);
+        }
+      }
+    };
+
+    playInitialTTS();
+  }, [isLoading, isVoiceMode, initialTTSPlayed, interviewState?.firstQuestion, messages.length, addMessage, speak]);
 
   // Initialize interview state
   useEffect(() => {

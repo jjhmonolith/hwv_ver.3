@@ -65,6 +65,7 @@ export interface InterviewState {
   currentPhase: InterviewPhase;
   topicsState: TopicState[];
   topicStartedAt?: string;
+  firstQuestion?: string; // First question for TTS playback on interview start
 }
 
 export type InterviewPhase =

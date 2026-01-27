@@ -103,7 +103,19 @@ export default function StartPage() {
     setError(null);
 
     try {
-      const result = await api.interview.start(sessionToken, selectedMode);
+      const result = await api.interview.start(sessionToken, selectedMode) as {
+        currentTopicIndex: number;
+        currentTopic: { index: number; title: string; totalTime: number };
+        firstQuestion: string;
+        topicsState: Array<{
+          index: number;
+          title: string;
+          totalTime: number;
+          timeLeft: number;
+          status: 'pending' | 'active' | 'completed' | 'expired';
+          started: boolean;
+        }>;
+      };
 
       // Update participant status
       setParticipant({
@@ -116,14 +128,9 @@ export default function StartPage() {
       setInterviewState({
         currentTopicIndex: result.currentTopicIndex,
         currentPhase: 'topic_intro',
-        topicsState: result.topicsState as Array<{
-          index: number;
-          title: string;
-          totalTime: number;
-          timeLeft: number;
-          status: 'pending' | 'active' | 'completed' | 'expired';
-          started: boolean;
-        }>,
+        topicsState: result.topicsState,
+        // Store first question for TTS playback on interview page
+        firstQuestion: result.firstQuestion,
       });
 
       router.push('/interview');
