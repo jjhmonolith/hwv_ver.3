@@ -3,7 +3,7 @@
 ## Current Status
 - **Active Phase**: Phase 5 (Reconnection) 대기
 - **Progress**: 5/7 Phases 완료
-- **Last Updated**: 2026-01-27 01:00
+- **Last Updated**: 2026-01-27 02:30
 
 ---
 
@@ -19,6 +19,45 @@
 | 4b | Voice Interview | 5/5 | ✅ 완료 |
 | 5 | Reconnection | 0/4 | ⬜ 대기 |
 | 6 | Monitoring | 0/3 | ⬜ 대기 |
+
+---
+
+## Phase 4b 테스트 개선 (2026-01-27)
+
+### E2E 테스트 현황 (10개 파일, 62개 테스트)
+
+| 파일 | 테스트 수 | 범위 |
+|------|----------|------|
+| `10-voice-mode-setup.spec.ts` | 6 | 모드 선택, 마이크 권한 |
+| `11-voice-interview-flow.spec.ts` | 8 | 정상 인터뷰 플로우 |
+| `12-voice-interface-states.spec.ts` | 5 | UI 상태 전환 |
+| `13-voice-tts-edge.spec.ts` | 6 | TTS 엣지 케이스 |
+| `14-voice-stt-edge.spec.ts` | 7 | STT 엣지 케이스 |
+| `15-voice-timer.spec.ts` | 5 | 타이머 동작 |
+| `16-voice-reconnection.spec.ts` | 5 | 재접속/복구 |
+| `17-voice-error-cases.spec.ts` | 8 | 에러 처리 |
+| `18-voice-ui-components.spec.ts` | 5 | UI 컴포넌트 |
+| `19-voice-edge-additional.spec.ts` | 7 | **추가 엣지 케이스** |
+
+### 개선 사항 (2026-01-27)
+
+1. **test-helpers.ts 개선**
+   - `waitForInterviewReady()`: UI 로드 대기 함수 추가
+   - `waitForVoiceStateChange()`: 상태 전환 대기 함수 추가
+   - `mockAutoplayBlocked()`: 브라우저 자동재생 정책 Mock 추가
+   - `simulateMicrophoneDisconnect()`: 마이크 끊김 시뮬레이션 추가
+
+2. **새 테스트 추가 (19-voice-edge-additional.spec.ts)**
+   - 19.1 녹음 중 마이크 권한 취소 처리
+   - 19.2 브라우저 자동재생 정책 차단 처리
+   - 19.3 빠른 연속 답변 완료 클릭 (중복 제출 방지)
+   - 19.4 긴 인터뷰 세션 (메모리 누수 확인)
+   - 19.5 주제 전환 시 음성 상태 초기화
+   - 19.6 페이지 이탈 시 리소스 정리
+   - 19.7 동시 TTS 요청 방지
+
+3. **안정성 개선**
+   - `waitForTimeout` → `waitForInterviewReady` 교체 (flaky 테스트 방지)
 
 ---
 
@@ -118,6 +157,8 @@
 
 | Date | Time | Phase | Action | Status |
 |------|------|-------|--------|--------|
+| 2026-01-27 | 02:30 | 4b | **테스트 개선** - 62개 테스트 (7개 신규), test-helpers 유틸리티 추가 | ✅ |
+| 2026-01-27 | 02:00 | 4b | 마이크 시작 버튼 화면 필요성 분석 완료 | ✅ |
 | 2026-01-27 | 01:00 | 4b | **Phase 4b 완료** - 음성 인터뷰 구현, TypeScript 타입 체크 통과 | ✅ |
 | 2026-01-27 | 00:50 | 4b | 문서 업데이트 - phase4b-voice.md, tasks.md | ✅ |
 | 2026-01-27 | 00:40 | 4b | TypeScript 타입 체크 통과 (Backend + Frontend) | ✅ |
