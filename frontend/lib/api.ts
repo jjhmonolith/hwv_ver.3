@@ -3,8 +3,13 @@
  * Provides type-safe API calls with error handling
  */
 
-// Remove trailing /api if present to avoid duplication (API endpoints already include /api prefix)
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+// Normalize API URL:
+// 1. Add https:// if protocol is missing (prevents relative URL issues in production)
+// 2. Remove trailing /api if present (API endpoints already include /api prefix)
+let rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+if (rawApiUrl && !rawApiUrl.startsWith('http://') && !rawApiUrl.startsWith('https://')) {
+  rawApiUrl = `https://${rawApiUrl}`;
+}
 const API_URL = rawApiUrl.replace(/\/api\/?$/, '');
 
 /**

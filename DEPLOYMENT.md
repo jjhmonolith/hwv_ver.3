@@ -136,7 +136,7 @@ Vercel Dashboard → Settings → Environment Variables:
 
 | 변수명 | 설명 | 예시 |
 |--------|------|------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL (without /api suffix) | `https://your-backend.railway.app` |
+| `NEXT_PUBLIC_API_URL` | Backend API URL (must include https://) | `https://your-backend.railway.app` |
 
 또는 Vercel Environment Secret 사용:
 ```
