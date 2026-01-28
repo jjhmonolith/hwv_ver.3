@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+*/node_modules
+
+# Build outputs
+frontend/.next
+backend/dist
+
+# Test files
+*.spec.ts
+tests/
+test-results/
+playwright-report/
+
+# Development files
+.env
+.env.local
+*.log
+
+# IDE
+.vscode
+.idea
+
+# Git
+.git
+.gitignore
+
+# Docs
+*.md
+!README.md
+
+# Frontend (deployed to Vercel)
+frontend/
+
+# Misc
+.claude/
+docker-compose.yml
+*.pdf
