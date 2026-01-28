@@ -5,6 +5,18 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Reasoning effort type for Responses API (matches OpenAI SDK)
+type ReasoningEffort = 'low' | 'medium' | 'high';
+
+function getReasoningEffort(): ReasoningEffort {
+  const effort = process.env.OPENAI_REASONING_EFFORT || 'medium';
+  // Validate and normalize effort value
+  if (effort === 'low' || effort === 'medium' || effort === 'high') {
+    return effort;
+  }
+  return 'medium'; // default fallback
+}
+
 // Topic interface
 export interface Topic {
   index: number;
@@ -30,10 +42,10 @@ export async function analyzeTopics(
   extractedText: string,
   topicCount: number
 ): Promise<Topic[]> {
-  const model = process.env.OPENAI_MODEL || 'gpt-4o';
-  const reasoningEffort = process.env.OPENAI_REASONING_EFFORT || 'medium';
+  const model = process.env.OPENAI_MODEL || 'gpt-5.2';
+  const reasoningEffort = getReasoningEffort();
 
-  const systemPrompt = `You are an expert educational assessor analyzing student homework submissions.
+  const instructions = `You are an expert educational assessor analyzing student homework submissions.
 Your task is to identify the ${topicCount} most important and distinct topics from the submitted text for an oral interview.
 
 Requirements:
@@ -54,21 +66,16 @@ Respond in JSON format:
 }`;
 
   try {
-    // Try using Responses API if available, fallback to Chat Completions
-    const response = await openai.chat.completions.create({
+    // Using Responses API with gpt-5.2
+    const response = await openai.responses.create({
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: `다음 과제 텍스트를 분석하고 ${topicCount}개의 주요 주제를 추출해주세요:\n\n${extractedText.slice(0, 15000)}`,
-        },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3,
+      instructions,
+      input: `다음 과제 텍스트를 분석하고 ${topicCount}개의 주요 주제를 추출해주세요:\n\n${extractedText.slice(0, 15000)}`,
+      text: { format: { type: 'json_object' } },
+      reasoning: { effort: reasoningEffort },
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.output_text;
     if (!content) {
       throw new Error('Empty response from LLM');
     }
@@ -90,17 +97,19 @@ Respond in JSON format:
 
 /**
  * Generate an interview question for a specific topic
+ * Uses OpenAI Responses API with gpt-5.2
  */
 export async function generateQuestion(
   context: QuestionContext
 ): Promise<string> {
-  const model = process.env.OPENAI_MODEL || 'gpt-4o';
+  const model = process.env.OPENAI_MODEL || 'gpt-5.2';
+  const reasoningEffort = getReasoningEffort();
 
   const conversationHistory = context.previousConversation
     .map((msg) => `${msg.role === 'ai' ? 'AI' : '학생'}: ${msg.content}`)
     .join('\n');
 
-  const systemPrompt = `You are conducting an oral interview to verify a student's authorship of their homework.
+  const instructions = `You are conducting an oral interview to verify a student's authorship of their homework.
 Your goal is to ask probing questions that reveal whether the student truly understands and wrote the content.
 
 Current topic: ${context.topic.title}
@@ -113,22 +122,21 @@ Guidelines:
 4. Questions should be in Korean
 5. Keep questions concise and clear`;
 
-  const userPrompt = conversationHistory
+  const input = conversationHistory
     ? `이전 대화:\n${conversationHistory}\n\n다음 질문을 생성해주세요.`
     : `과제 내용:\n${context.assignmentText.slice(0, 5000)}\n\n이 주제에 대한 첫 번째 질문을 생성해주세요.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    // Using Responses API with gpt-5.2
+    const response = await openai.responses.create({
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 300,
+      instructions,
+      input,
+      reasoning: { effort: reasoningEffort },
+      max_output_tokens: 300,
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.output_text;
     if (!content) {
       throw new Error('Empty response from LLM');
     }
@@ -142,6 +150,7 @@ Guidelines:
 
 /**
  * Evaluate student responses and generate summary
+ * Uses OpenAI Responses API with gpt-5.2
  */
 export async function evaluateInterview(
   assignmentText: string,
@@ -156,7 +165,8 @@ export async function evaluateInterview(
   weaknesses: string[];
   overallComment: string;
 }> {
-  const model = process.env.OPENAI_MODEL || 'gpt-4o';
+  const model = process.env.OPENAI_MODEL || 'gpt-5.2';
+  const reasoningEffort = getReasoningEffort();
 
   const conversationSummary = conversations
     .map((conv) => {
@@ -167,7 +177,7 @@ export async function evaluateInterview(
     })
     .join('\n\n');
 
-  const systemPrompt = `You are an expert evaluator assessing whether a student authored their own homework based on an oral interview.
+  const instructions = `You are an expert evaluator assessing whether a student authored their own homework based on an oral interview.
 
 Evaluate based on:
 1. Depth of understanding demonstrated
@@ -184,20 +194,16 @@ Respond in JSON format:
 }`;
 
   try {
-    const response = await openai.chat.completions.create({
+    // Using Responses API with gpt-5.2
+    const response = await openai.responses.create({
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: `과제 내용 (일부):\n${assignmentText.slice(0, 5000)}\n\n인터뷰 기록:\n${conversationSummary}`,
-        },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.3,
+      instructions,
+      input: `과제 내용 (일부):\n${assignmentText.slice(0, 5000)}\n\n인터뷰 기록:\n${conversationSummary}`,
+      text: { format: { type: 'json_object' } },
+      reasoning: { effort: reasoningEffort },
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.output_text;
     if (!content) {
       throw new Error('Empty response from LLM');
     }
