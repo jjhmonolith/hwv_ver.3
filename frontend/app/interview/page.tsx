@@ -40,6 +40,8 @@ export default function InterviewPage() {
   const [error, setError] = useState<string | null>(null);
   // 빠른 연속 클릭 방지 (React 상태는 비동기라 즉시 반영 안됨)
   const isSubmittingRef = useRef(false);
+  // 초기화 중복 실행 방지
+  const initializationDoneRef = useRef(false);
 
   // Voice mode state
   const [ttsFailed, setTtsFailed] = useState(false);
@@ -142,13 +144,13 @@ export default function InterviewPage() {
   // Play initial TTS for first question (voice mode only)
   useEffect(() => {
     const playInitialTTS = async () => {
-      if (
-        !isLoading &&
-        isVoiceMode &&
-        !initialTTSPlayed &&
-        interviewState?.firstQuestion &&
-        messages.length === 0
-      ) {
+      // Skip if loading, not voice mode, already played, or in reconnected state
+      if (isLoading || !isVoiceMode || initialTTSPlayed || reconnected) {
+        return;
+      }
+
+      // Case 1: Fresh session with firstQuestion from interviewState (no messages yet)
+      if (interviewState?.firstQuestion && messages.length === 0) {
         setInitialTTSPlayed(true);
         const firstQuestion = interviewState.firstQuestion;
 
@@ -164,16 +166,34 @@ export default function InterviewPage() {
         // Play TTS
         try {
           await speak(firstQuestion);
-          // Note: startListening will be called in handleTTSEnd callback
         } catch {
           console.error('Initial TTS failed, will show manual start');
           setTtsFailed(true);
+        }
+        return;
+      }
+
+      // Case 2: First visit with messages restored from server (e.g., startInterview was called)
+      // Play TTS for the first AI message if user hasn't heard it yet
+      if (messages.length > 0) {
+        const firstAiMessage = messages.find(m => m.role === 'ai');
+        if (firstAiMessage) {
+          setInitialTTSPlayed(true);
+          setCurrentQuestion(firstAiMessage.content);
+
+          // Play TTS
+          try {
+            await speak(firstAiMessage.content);
+          } catch {
+            console.error('Initial TTS failed, will show manual start');
+            setTtsFailed(true);
+          }
         }
       }
     };
 
     playInitialTTS();
-  }, [isLoading, isVoiceMode, initialTTSPlayed, interviewState?.firstQuestion, messages.length, addMessage, speak]);
+  }, [isLoading, isVoiceMode, initialTTSPlayed, reconnected, interviewState?.firstQuestion, messages, addMessage, speak]);
 
   // Initialize interview state
   useEffect(() => {
@@ -182,6 +202,13 @@ export default function InterviewPage() {
         router.push('/join');
         return;
       }
+
+      // Prevent duplicate initialization (React Strict Mode or dependency changes)
+      if (initializationDoneRef.current) {
+        console.log('[INTERVIEW] Skipping duplicate initialization');
+        return;
+      }
+      initializationDoneRef.current = true;
 
       try {
         setIsLoading(true);
@@ -237,15 +264,35 @@ export default function InterviewPage() {
             }));
           setMessages(currentTopicConversations);
 
-          // Voice mode: Mark as reconnected if there are existing messages
-          if (isVoiceMode && currentTopicConversations.length > 0) {
-            setReconnected(true);
-            // Get last AI question for display if TTS fails
-            const lastAiMessage = currentTopicConversations
-              .filter((m) => m.role === 'ai')
-              .pop();
-            if (lastAiMessage) {
-              setCurrentQuestion(lastAiMessage.content);
+          // Voice mode: Mark as reconnected only if user visited this page before
+          // This distinguishes between "first visit after API call" and "actual reconnection"
+          if (isVoiceMode && currentTopicConversations.length > 0 && typeof window !== 'undefined') {
+            const visitedKey = `interview-visited-${sessionToken}`;
+            const initKey = `interview-init-${sessionToken}`;
+
+            // Check if we've already done the reconnection check for this session
+            // This prevents duplicate checks from React Strict Mode or re-renders
+            const alreadyInitialized = sessionStorage.getItem(initKey) === 'done';
+
+            if (!alreadyInitialized) {
+              // First time running this check for this session
+              sessionStorage.setItem(initKey, 'done');
+
+              const hasVisitedBefore = sessionStorage.getItem(visitedKey) === 'true';
+
+              if (hasVisitedBefore) {
+                setReconnected(true);
+                // Get last AI question for display if TTS fails
+                const lastAiMessage = currentTopicConversations
+                  .filter((m) => m.role === 'ai')
+                  .pop();
+                if (lastAiMessage) {
+                  setCurrentQuestion(lastAiMessage.content);
+                }
+              } else {
+                // Mark as visited for ACTUAL future reconnections (e.g., page refresh, tab close/reopen)
+                sessionStorage.setItem(visitedKey, 'true');
+              }
             }
           }
         }
@@ -335,6 +382,9 @@ export default function InterviewPage() {
   const handleVoiceComplete = useCallback(async () => {
     if (!isVoiceMode || isSubmittingRef.current) return;
 
+    // Immediately set ref to prevent rapid clicks
+    isSubmittingRef.current = true;
+
     try {
       // Stop listening and get transcribed text
       const transcribedText = await stopListening();
@@ -350,6 +400,10 @@ export default function InterviewPage() {
     } catch (error) {
       console.error('Voice answer completion failed:', error);
       setError('음성 변환에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      // Reset ref after completion (if handleSubmitAnswer wasn't called)
+      // Note: handleSubmitAnswer also manages the ref, so this is a safety reset
+      isSubmittingRef.current = false;
     }
   }, [isVoiceMode, stopListening, handleSubmitAnswer]);
 

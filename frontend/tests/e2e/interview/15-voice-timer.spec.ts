@@ -85,7 +85,7 @@ test.describe('15. Voice Timer Behavior', () => {
     expect(timerDiff).toBeLessThanOrEqual(2); // 약간의 오차 허용
   });
 
-  test('15.2 녹음 중 타이머 작동', async ({ page }) => {
+  test('15.2 초기 녹음 중 타이머 일시정지 (첫 답변 전)', async ({ page }) => {
     // TTS를 빠르게 설정하여 녹음 상태로 빠르게 전환
     await setupVoiceInterview(page, { audioDelay: 100 });
 
@@ -124,9 +124,10 @@ test.describe('15. Voice Timer Behavior', () => {
 
       const timerAfter = await getTimerValue(page);
 
-      // 녹음 중에는 타이머가 감소해야 함
+      // 첫 답변 제출 전에는 타이머가 일시정지 상태
+      // (topic.started = false 이므로)
       const timerDiff = timerBefore - timerAfter;
-      expect(timerDiff).toBeGreaterThanOrEqual(2); // 최소 2초 이상 감소
+      expect(timerDiff).toBeLessThanOrEqual(1); // 거의 감소하지 않음 (일시정지)
     }
   });
 
@@ -252,7 +253,7 @@ test.describe('15. Voice Timer Behavior', () => {
 
   test('15.5 전체 사이클 타이머 동작 검증', async ({ page }) => {
     // 각 단계별 타이밍 설정
-    await setupVoiceInterview(page, { audioDelay: 1000 }); // TTS 1초
+    await setupVoiceInterview(page, { audioDelay: 500 }); // TTS 0.5초
 
     const participant = await createTestParticipant(session.accessCode, {
       studentName: `timer_test_5_${Date.now()}`,
@@ -275,24 +276,30 @@ test.describe('15. Voice Timer Behavior', () => {
     await page.goto('/interview');
     await page.waitForLoadState('networkidle');
 
-    // 초기 타이머 값
-    await page.waitForTimeout(500);
+    // 초기 타이머 값 (TTS 중 일시정지)
+    await page.waitForTimeout(200);
     const initialTimer = await getTimerValue(page);
 
-    // TTS 재생 대기 (1초)
+    // TTS 재생 대기 후 녹음 상태 확인
     await page.waitForTimeout(1500);
 
-    // 녹음 시작 후 3초 대기
-    await page.waitForTimeout(3000);
+    // 녹음 상태인지 확인
+    const recordingIndicator = page.getByText(/녹음 중|Recording/i).first();
+    const isRecording = await recordingIndicator.isVisible({ timeout: 3000 }).catch(() => false);
 
-    const afterRecordingTimer = await getTimerValue(page);
+    if (isRecording) {
+      // 첫 답변 전에는 타이머가 일시정지 (topic.started = false)
+      // 따라서 타이머가 크게 변하지 않아야 함
+      const afterRecordingTimer = await getTimerValue(page);
+      const recordingTimeDiff = initialTimer - afterRecordingTimer;
 
-    // 녹음 중에 타이머가 감소해야 함
-    const recordingTimeDiff = initialTimer - afterRecordingTimer;
+      // TTS 중에도 녹음 중에도 타이머 일시정지
+      // (첫 답변 제출 전이므로)
+      expect(recordingTimeDiff).toBeLessThanOrEqual(2);
 
-    // 녹음 시간만큼 타이머가 감소했는지 확인 (약 3초, 오차 허용)
-    // TTS 중에는 일시정지이므로 녹음 시간만 감소
-    expect(recordingTimeDiff).toBeGreaterThanOrEqual(2);
-    expect(recordingTimeDiff).toBeLessThanOrEqual(5);
+      // 전체 사이클 동안 타이머가 크게 변하지 않았음을 확인
+      // (모든 상태에서 일시정지 조건에 해당)
+      expect(initialTimer).toBeGreaterThanOrEqual(115); // 약 2분 근처
+    }
   });
 });

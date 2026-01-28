@@ -286,26 +286,30 @@ export function useWhisperRecognition(
   }, [sessionToken, isListening, options]);
 
   const cancelListening = useCallback(() => {
-    if (mediaRecorderRef.current && isListening) {
+    // Check if mediaRecorder exists and is recording (don't depend on isListening state)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
 
     // Cleanup resources
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
-    if (audioContextRef.current) {
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
     }
+    audioContextRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
 
     setIsListening(false);
     setIsTranscribing(false);
     setVolumeLevel(0);
     audioChunksRef.current = [];
-  }, [isListening]);
+  }, []); // No dependencies - uses refs instead of state
 
   // Cleanup on unmount
   useEffect(() => {

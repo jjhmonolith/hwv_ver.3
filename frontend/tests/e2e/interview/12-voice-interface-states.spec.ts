@@ -12,8 +12,6 @@ import {
   uploadTestPdf,
   startInterview,
   setupVoiceInterview,
-  mockTTSApi,
-  mockSTTApi,
   setVoiceInterviewStorageScript,
   TestSession,
   TestTeacher,
@@ -44,6 +42,46 @@ test.describe('12. Voice Interface States', () => {
     await page.evaluate(clearStudentStorageScript());
   });
 
+  /**
+   * Helper to set up voice interview page with clean state
+   */
+  async function setupVoiceInterviewPage(
+    page: Parameters<typeof test>[0] extends { page: infer P } ? P : never,
+    options: {
+      sessionToken: string;
+      participantId: string;
+      studentName: string;
+      audioDelay?: number;
+    }
+  ) {
+    // Clear all session storage flags for clean state
+    await page.goto('/');
+    await page.evaluate(() => {
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith('interview-visited-') || key.startsWith('interview-init-')) {
+          sessionStorage.removeItem(key);
+        }
+      });
+    });
+
+    // Set up localStorage
+    await page.evaluate(
+      setVoiceInterviewStorageScript(options.sessionToken, {
+        id: options.participantId,
+        studentName: options.studentName,
+        status: 'interview_in_progress',
+      }, {
+        title: session.title,
+        topicCount: session.topicCount,
+        topicDuration: session.topicDuration,
+      })
+    );
+
+    // Navigate to interview page
+    await page.goto('/interview');
+    await page.waitForLoadState('networkidle');
+  }
+
   test('12.1 TTS 재생 상태 - 파란색 아이콘, "AI가 말하고 있습니다..."', async ({ page }) => {
     // TTS를 느리게 설정하여 상태 확인
     await setupVoiceInterview(page, { audioDelay: 3000 }); // 3초 딜레이
@@ -54,21 +92,12 @@ test.describe('12. Voice Interface States', () => {
     await uploadTestPdf(participant.sessionToken);
     await startInterview(participant.sessionToken, 'voice');
 
-    await page.evaluate(
-      setVoiceInterviewStorageScript(participant.sessionToken, {
-        id: participant.participantId,
-        studentName: `voice_state_1_${Date.now()}`,
-        status: 'interview_in_progress',
-      }, {
-        title: session.title,
-        topicCount: session.topicCount,
-        topicDuration: session.topicDuration,
-      })
-    );
-
-    await page.goto('/interview');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await setupVoiceInterviewPage(page, {
+      sessionToken: participant.sessionToken,
+      participantId: participant.participantId,
+      studentName: `voice_state_1_${Date.now()}`,
+      audioDelay: 3000,
+    });
 
     // TTS 재생 상태 확인
     const ttsPlayingText = page.getByText(/AI가 말하고 있습니다|Speaking|재생 중/i).first();
@@ -95,25 +124,16 @@ test.describe('12. Voice Interface States', () => {
     await uploadTestPdf(participant.sessionToken);
     await startInterview(participant.sessionToken, 'voice');
 
-    await page.evaluate(
-      setVoiceInterviewStorageScript(participant.sessionToken, {
-        id: participant.participantId,
-        studentName: `voice_state_2_${Date.now()}`,
-        status: 'interview_in_progress',
-      }, {
-        title: session.title,
-        topicCount: session.topicCount,
-        topicDuration: session.topicDuration,
-      })
-    );
+    await setupVoiceInterviewPage(page, {
+      sessionToken: participant.sessionToken,
+      participantId: participant.participantId,
+      studentName: `voice_state_2_${Date.now()}`,
+      audioDelay: 100,
+    });
 
-    await page.goto('/interview');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000); // TTS 완료 대기
-
-    // 녹음 상태 확인
+    // TTS 완료 후 녹음 상태로 전환 대기
     const recordingText = page.getByText(/녹음 중|Recording/i).first();
-    await expect(recordingText).toBeVisible({ timeout: 10000 });
+    await expect(recordingText).toBeVisible({ timeout: 15000 });
 
     // 빨간색 배경/아이콘 확인
     const redIndicator = page.locator('.bg-red-500, .text-red-500, .bg-red-100').first();
@@ -153,21 +173,16 @@ test.describe('12. Voice Interface States', () => {
     await uploadTestPdf(participant.sessionToken);
     await startInterview(participant.sessionToken, 'voice');
 
-    await page.evaluate(
-      setVoiceInterviewStorageScript(participant.sessionToken, {
-        id: participant.participantId,
-        studentName: `voice_state_3_${Date.now()}`,
-        status: 'interview_in_progress',
-      }, {
-        title: session.title,
-        topicCount: session.topicCount,
-        topicDuration: session.topicDuration,
-      })
-    );
+    await setupVoiceInterviewPage(page, {
+      sessionToken: participant.sessionToken,
+      participantId: participant.participantId,
+      studentName: `voice_state_3_${Date.now()}`,
+      audioDelay: 100,
+    });
 
-    await page.goto('/interview');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000); // TTS 완료 및 녹음 시작 대기
+    // TTS 완료 후 녹음 상태 대기
+    const recordingText = page.getByText(/녹음 중|Recording/i).first();
+    await expect(recordingText).toBeVisible({ timeout: 10000 });
 
     // 답변 완료 버튼 클릭
     const completeButton = page.getByRole('button', { name: /답변 완료|Complete|제출/i });
@@ -214,23 +229,18 @@ test.describe('12. Voice Interface States', () => {
     await uploadTestPdf(participant.sessionToken);
     await startInterview(participant.sessionToken, 'voice');
 
-    await page.evaluate(
-      setVoiceInterviewStorageScript(participant.sessionToken, {
-        id: participant.participantId,
-        studentName: `voice_state_4_${Date.now()}`,
-        status: 'interview_in_progress',
-      }, {
-        title: session.title,
-        topicCount: session.topicCount,
-        topicDuration: session.topicDuration,
-      })
-    );
+    await setupVoiceInterviewPage(page, {
+      sessionToken: participant.sessionToken,
+      participantId: participant.participantId,
+      studentName: `voice_state_4_${Date.now()}`,
+      audioDelay: 100,
+    });
 
-    await page.goto('/interview');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    // TTS 완료 후 녹음 상태 대기
+    const recordingText = page.getByText(/녹음 중|Recording/i).first();
+    await expect(recordingText).toBeVisible({ timeout: 10000 });
 
-    // 답변 완료
+    // 답변 완료 버튼 클릭
     const completeButton = page.getByRole('button', { name: /답변 완료|Complete|제출/i });
     if (await completeButton.isVisible({ timeout: 5000 })) {
       await completeButton.click();
@@ -258,31 +268,18 @@ test.describe('12. Voice Interface States', () => {
 
     const stateHistory: string[] = [];
 
-    // 상태 추적을 위한 MutationObserver 설정
-    await page.addInitScript(() => {
-      (window as unknown as { __voiceStateHistory: string[] }).__voiceStateHistory = [];
-    });
-
     const participant = await createTestParticipant(session.accessCode, {
       studentName: `voice_state_5_${Date.now()}`,
     });
     await uploadTestPdf(participant.sessionToken);
     await startInterview(participant.sessionToken, 'voice');
 
-    await page.evaluate(
-      setVoiceInterviewStorageScript(participant.sessionToken, {
-        id: participant.participantId,
-        studentName: `voice_state_5_${Date.now()}`,
-        status: 'interview_in_progress',
-      }, {
-        title: session.title,
-        topicCount: session.topicCount,
-        topicDuration: session.topicDuration,
-      })
-    );
-
-    await page.goto('/interview');
-    await page.waitForLoadState('networkidle');
+    await setupVoiceInterviewPage(page, {
+      sessionToken: participant.sessionToken,
+      participantId: participant.participantId,
+      studentName: `voice_state_5_${Date.now()}`,
+      audioDelay: 1500,
+    });
 
     // 상태 전환 추적
     // 1. TTS 재생 상태 확인

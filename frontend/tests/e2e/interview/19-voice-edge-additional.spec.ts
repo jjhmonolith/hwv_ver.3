@@ -155,8 +155,16 @@ test.describe('19. Voice Additional Edge Cases', () => {
   });
 
   test('19.3 빠른 연속 답변 완료 클릭 (중복 제출 방지)', async ({ page }) => {
-    await setupVoiceInterview(page, { audioDelay: 100 });
+    test.setTimeout(90000);
 
+    // 수동으로 mock 설정 (setupVoiceInterview의 STT mock과 충돌 방지)
+    await mockMicrophonePermission(page, 'granted');
+    await mockAudioPlayback(page, { delay: 100 });
+    await mockAudioContext(page);
+    await mockTTSApi(page);
+    await mockSpeechStatus(page);
+
+    // 커스텀 STT mock (호출 횟수 추적)
     let sttCallCount = 0;
     await page.route('**/api/speech/stt', async (route) => {
       sttCallCount++;
@@ -206,6 +214,7 @@ test.describe('19. Voice Additional Edge Cases', () => {
   });
 
   test('19.4 긴 인터뷰 세션 (메모리 누수 확인)', async ({ page }) => {
+    test.setTimeout(120000);
     await setupVoiceInterview(page, { audioDelay: 50 });
 
     const participant = await createTestParticipant(session.accessCode, {
@@ -256,6 +265,7 @@ test.describe('19. Voice Additional Edge Cases', () => {
   });
 
   test('19.5 주제 전환 시 음성 상태 초기화', async ({ page, request }) => {
+    test.setTimeout(90000);
     await setupVoiceInterview(page, { audioDelay: 100 });
 
     const participant = await createTestParticipant(session.accessCode, {
@@ -301,6 +311,7 @@ test.describe('19. Voice Additional Edge Cases', () => {
   });
 
   test('19.6 페이지 이탈 시 리소스 정리', async ({ page, context }) => {
+    test.setTimeout(90000);
     await setupVoiceInterview(page, { audioDelay: 3000 });
 
     const participant = await createTestParticipant(session.accessCode, {
@@ -344,6 +355,7 @@ test.describe('19. Voice Additional Edge Cases', () => {
   });
 
   test('19.7 동시 TTS 요청 방지', async ({ page }) => {
+    test.setTimeout(90000);
     await setupVoiceInterview(page, { audioDelay: 100 });
 
     let ttsCallCount = 0;

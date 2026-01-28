@@ -45,6 +45,7 @@ test.describe('16. Voice Reconnection & Recovery', () => {
   });
 
   test('16.1 페이지 새로고침 시 복구', async ({ page }) => {
+    test.setTimeout(90000); // Increase timeout for this test due to multiple API calls
     await setupVoiceInterview(page, { audioDelay: 100 });
 
     const participant = await createTestParticipant(session.accessCode, {

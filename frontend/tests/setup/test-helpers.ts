@@ -278,10 +278,18 @@ export function setStudentStorageScript(sessionToken: string, participant: objec
 }
 
 /**
- * localStorage에서 학생 세션 토큰 삭제 (Playwright용)
+ * localStorage와 sessionStorage에서 학생 세션 및 인터뷰 상태 삭제 (Playwright용)
  */
 export function clearStudentStorageScript(): string {
-  return `localStorage.removeItem('student-storage');`;
+  return `
+    localStorage.removeItem('student-storage');
+    // Clear interview visited and init flags from sessionStorage
+    Object.keys(sessionStorage).forEach(key => {
+      if (key.startsWith('interview-visited-') || key.startsWith('interview-init-')) {
+        sessionStorage.removeItem(key);
+      }
+    });
+  `;
 }
 
 // ==========================================
@@ -607,31 +615,80 @@ export async function mockAudioPlayback(page: Page, options?: MockAudioOptions):
   const shouldFail = options?.shouldFail ?? false;
 
   await page.addInitScript(({ delay, shouldFail }: { delay: number; shouldFail: boolean }) => {
-    const OriginalAudio = window.Audio;
+    // Create a fully mocked Audio class that doesn't try to load actual audio
+    class MockAudio extends EventTarget {
+      src: string = '';
+      currentTime: number = 0;
+      duration: number = delay / 1000;
+      paused: boolean = true;
+      ended: boolean = false;
+      volume: number = 1;
+      muted: boolean = false;
+      readyState: number = 4; // HAVE_ENOUGH_DATA
 
-    const MockAudio = function (this: HTMLAudioElement, src?: string) {
-      const audio = new OriginalAudio(src);
+      private timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      audio.play = async () => {
+      constructor(src?: string) {
+        super();
+        if (src) this.src = src;
+      }
+
+      play(): Promise<void> {
         if (shouldFail) {
           const error = new Error('Playback failed');
-          audio.dispatchEvent(new ErrorEvent('error', { error }));
-          throw error;
+          this.dispatchEvent(new ErrorEvent('error', { error }));
+          return Promise.reject(error);
         }
 
-        // 지정된 시간 후 ended 이벤트 발생
-        setTimeout(() => {
-          Object.defineProperty(audio, 'ended', { value: true, writable: true });
-          audio.dispatchEvent(new Event('ended'));
+        this.paused = false;
+
+        // Simulate playback ending after delay
+        this.timeoutId = setTimeout(() => {
+          this.ended = true;
+          this.paused = true;
+          this.dispatchEvent(new Event('ended'));
         }, delay);
 
         return Promise.resolve();
-      };
+      }
 
-      return audio;
+      pause(): void {
+        this.paused = true;
+        if (this.timeoutId) {
+          clearTimeout(this.timeoutId);
+          this.timeoutId = null;
+        }
+      }
+
+      load(): void {
+        // Do nothing - no actual loading
+      }
+
+      // Event handler properties
+      onended: ((this: HTMLAudioElement, ev: Event) => void) | null = null;
+      onerror: ((this: HTMLAudioElement, ev: Event | string) => void) | null = null;
+      onplay: ((this: HTMLAudioElement, ev: Event) => void) | null = null;
+      onpause: ((this: HTMLAudioElement, ev: Event) => void) | null = null;
+    }
+
+    // Override addEventListener to also trigger handler properties
+    const originalAddEventListener = MockAudio.prototype.addEventListener;
+    MockAudio.prototype.addEventListener = function(type: string, listener: EventListener) {
+      originalAddEventListener.call(this, type, listener);
     };
-    MockAudio.prototype = OriginalAudio.prototype;
-    (window as unknown as { Audio: typeof MockAudio }).Audio = MockAudio;
+
+    // Override dispatchEvent to also call handler properties
+    const originalDispatchEvent = MockAudio.prototype.dispatchEvent;
+    MockAudio.prototype.dispatchEvent = function(event: Event): boolean {
+      const handlerName = `on${event.type}` as keyof MockAudio;
+      const handler = this[handlerName];
+      if (typeof handler === 'function') {
+        (handler as EventListener).call(this, event);
+      }
+      return originalDispatchEvent.call(this, event);
+    };
+
+    (window as unknown as { Audio: typeof MockAudio }).Audio = MockAudio as unknown as typeof Audio;
   }, { delay, shouldFail });
 }
 
@@ -808,6 +865,7 @@ export async function setupVoiceInterview(
   await mockMicrophonePermission(page, options?.micPermission ?? 'granted');
   await mockAudioPlayback(page, { delay: options?.audioDelay ?? 100 });
   await mockAudioContext(page);
+  await mockMediaRecorder(page); // Added: Mock MediaRecorder for recording simulation
   await mockTTSApi(page);
   await mockSTTApi(page, { transcription: options?.transcription ?? '테스트 답변입니다.' });
   await mockSpeechStatus(page);
@@ -928,6 +986,26 @@ export async function waitForInterviewReady(page: Page, timeout: number = 15000)
   await expect(
     page.locator('[class*="bg-slate-100"], [class*="bg-gray-100"], button:has-text("마이크 시작"), button:has-text("답변 완료")').first()
   ).toBeVisible({ timeout });
+}
+
+/**
+ * 재접속 상태 처리 - 마이크 시작 버튼이 보이면 클릭
+ * API에서 conversations가 반환되면 reconnected 상태가 되어 수동 시작이 필요함
+ * @returns true if manual start was needed, false otherwise
+ */
+export async function handleReconnectionIfNeeded(page: Page, timeout: number = 5000): Promise<boolean> {
+  const manualStartButton = page.getByRole('button', { name: /마이크 시작/ });
+
+  try {
+    await manualStartButton.waitFor({ state: 'visible', timeout });
+    await manualStartButton.click();
+    // Wait for TTS to start after clicking the button
+    await page.waitForTimeout(500);
+    return true;
+  } catch {
+    // Button not visible - TTS is auto-playing, which is expected
+    return false;
+  }
 }
 
 /**
