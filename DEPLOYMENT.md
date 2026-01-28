@@ -136,7 +136,7 @@ Vercel Dashboard → Settings → Environment Variables:
 
 | 변수명 | 설명 | 예시 |
 |--------|------|------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL | `https://your-backend.railway.app/api` |
+| `NEXT_PUBLIC_API_URL` | Backend API URL (without /api suffix) | `https://your-backend.railway.app` |
 
 또는 Vercel Environment Secret 사용:
 ```
@@ -348,5 +348,6 @@ ELEVENLABS_MODEL=eleven_flash_v2_5
 ### Frontend (Vercel)
 
 ```env
-NEXT_PUBLIC_API_URL=https://your-backend.railway.app/api
+# Note: Do NOT include /api suffix - it's added automatically by the API client
+NEXT_PUBLIC_API_URL=https://your-backend.railway.app
 ```

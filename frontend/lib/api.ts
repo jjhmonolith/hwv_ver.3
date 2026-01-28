@@ -3,7 +3,9 @@
  * Provides type-safe API calls with error handling
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+// Remove trailing /api if present to avoid duplication (API endpoints already include /api prefix)
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+const API_URL = rawApiUrl.replace(/\/api\/?$/, '');
 
 /**
  * API Response type
