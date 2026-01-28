@@ -93,7 +93,7 @@ Railway Dashboard → Variables에서 설정:
 | `ELEVENLABS_API_KEY` | ElevenLabs API 키 | `...` |
 | `ELEVENLABS_VOICE_ID` | 음성 ID | `XB0fDUnXU5powFXDhCwa` |
 | `ELEVENLABS_MODEL` | TTS 모델 | `eleven_flash_v2_5` |
-| `FRONTEND_URL` | 프론트엔드 URL | `https://your-app.vercel.app` |
+| `FRONTEND_URL` | 프론트엔드 URL (must include https://) | `https://your-app.vercel.app` |
 | `NODE_ENV` | 환경 | `production` |
 
 #### OpenAI Responses API 설정

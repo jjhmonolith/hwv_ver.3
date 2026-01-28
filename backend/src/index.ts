@@ -20,12 +20,18 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4010;
 
+// Normalize FRONTEND_URL: add https:// if protocol is missing
+let frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3010';
+if (frontendUrl && !frontendUrl.startsWith('http://') && !frontendUrl.startsWith('https://')) {
+  frontendUrl = `https://${frontendUrl}`;
+}
+
 // Security middleware
 app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3010',
+  origin: frontendUrl,
   credentials: true,
 }));
 
