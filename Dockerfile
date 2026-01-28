@@ -6,13 +6,13 @@ WORKDIR /app
 # Copy backend package files
 COPY backend/package*.json ./
 
-# Install dependencies
+# Install all dependencies (including dev for build)
 RUN npm ci
 
 # Copy backend source
 COPY backend/ ./
 
-# Build TypeScript
+# Build TypeScript (includes copying schema.sql to dist)
 RUN npm run build
 
 # Production stage
@@ -22,21 +22,13 @@ WORKDIR /app
 
 # Copy package files and install production deps only
 COPY backend/package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
-# Copy built files from builder
+# Copy built files from builder (includes schema.sql in dist/db)
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/db ./src/db
 
-# Set environment
+# Set environment (PORT is provided by Railway)
 ENV NODE_ENV=production
-ENV PORT=4010
-
-EXPOSE 4010
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:4010/health || exit 1
 
 # Run migrations and start server
-CMD ["sh", "-c", "npm run migrate && npm start"]
+CMD ["sh", "-c", "npm run migrate:prod && npm start"]
