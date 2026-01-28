@@ -11,6 +11,9 @@ import joinRoutes from './routes/join.js';
 import interviewRoutes from './routes/interview.js';
 import speechRoutes from './routes/speech.js';
 
+// Worker imports (auto-starts when imported, except in test environment)
+import './workers/disconnectChecker.js';
+
 // Load environment variables
 dotenv.config();
 

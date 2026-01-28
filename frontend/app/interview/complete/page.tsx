@@ -36,7 +36,38 @@ export default function CompletePage() {
         return;
       }
 
-      // Fetch from API
+      // Check if already in terminal state (completed/timeout/abandoned)
+      // In this case, try to get state first to avoid re-calling complete
+      if (participant?.status && ['completed', 'timeout', 'abandoned'].includes(participant.status)) {
+        try {
+          const stateResponse = await api.interview.getState(sessionToken) as {
+            status: string;
+            analyzedTopics: unknown[];
+            currentTopicIndex: number;
+            currentPhase: string;
+            topicsState: unknown[];
+          };
+
+          // If we're here, we have no summary but status is terminal
+          // This means we need to show a fallback
+          setStatus(participant.status as 'completed' | 'timeout' | 'abandoned');
+          setSummary({
+            strengths: ['인터뷰에 참여해주셔서 감사합니다.'],
+            weaknesses: [],
+            overallComment: participant.status === 'timeout'
+              ? '시간 초과로 인터뷰가 종료되었습니다.'
+              : participant.status === 'abandoned'
+                ? '세션이 만료되었습니다.'
+                : '인터뷰가 완료되었습니다. 결과는 교사에게 전달됩니다.',
+          });
+          setIsLoading(false);
+          return;
+        } catch {
+          // Fall through to complete API
+        }
+      }
+
+      // Fetch from API (will complete the interview and generate summary)
       try {
         const response = await api.interview.complete(sessionToken) as {
           status: string;

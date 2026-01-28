@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge, BadgeStatus } from '@/components/ui/StatusBadge';
+import { ParticipantDetail } from '@/components/teacher/ParticipantDetail';
 import { useTeacherStore } from '@/lib/store';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -18,6 +19,7 @@ import {
   MessageSquare,
   Mic,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 
 interface SessionDetail {
@@ -47,6 +49,35 @@ interface Participant {
 
 type FilterStatus = 'all' | 'completed' | 'interview_in_progress' | 'registered';
 
+// Participant detail type from API
+interface ParticipantDetailData {
+  id: string;
+  studentName: string;
+  studentId: string | null;
+  status: string;
+  chosenInterviewMode: string | null;
+  submittedFileName: string | null;
+  submittedFileUrl: string | null;
+  analyzedTopics: Array<{ title: string; description?: string }> | null;
+  summary: {
+    score: number;
+    strengths: string[];
+    weaknesses: string[];
+    overallComment: string;
+  } | null;
+  registeredAt: string;
+  fileSubmittedAt: string | null;
+  interviewStartedAt: string | null;
+  interviewEndedAt: string | null;
+  conversations: Array<{
+    topicIndex: number;
+    turnIndex: number;
+    role: 'ai' | 'student';
+    content: string;
+    createdAt: string;
+  }>;
+}
+
 export default function SessionDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -60,6 +91,11 @@ export default function SessionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+
+  // Participant detail state
+  const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
+  const [participantDetail, setParticipantDetail] = useState<ParticipantDetailData | null>(null);
+  const [participantLoading, setParticipantLoading] = useState(false);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -152,6 +188,29 @@ export default function SessionDetailPage() {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     }
+  };
+
+  // Fetch participant details
+  const fetchParticipantDetail = useCallback(async (participantId: string) => {
+    if (!token || !sessionId) return;
+
+    setParticipantLoading(true);
+    setSelectedParticipantId(participantId);
+
+    try {
+      const result = await api.sessions.getParticipant(token, sessionId, participantId);
+      setParticipantDetail(result);
+    } catch (err) {
+      console.error('Failed to load participant details:', err);
+      setParticipantDetail(null);
+    } finally {
+      setParticipantLoading(false);
+    }
+  }, [token, sessionId]);
+
+  const closeParticipantDetail = () => {
+    setSelectedParticipantId(null);
+    setParticipantDetail(null);
   };
 
   const formatDuration = (seconds: number) => {
@@ -263,7 +322,10 @@ export default function SessionDetailPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className={cn(
+          "grid gap-6",
+          selectedParticipantId ? "lg:grid-cols-4" : "lg:grid-cols-3"
+        )}>
           {/* Session Info */}
           <div className="lg:col-span-1 space-y-6">
             {/* Settings Card */}
@@ -351,7 +413,7 @@ export default function SessionDetailPage() {
           </div>
 
           {/* Participants List */}
-          <div className="lg:col-span-2">
+          <div className={selectedParticipantId ? "lg:col-span-1" : "lg:col-span-2"}>
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-4 border-b border-gray-200">
                 <div className="flex items-center justify-between">
@@ -391,9 +453,15 @@ export default function SessionDetailPage() {
               ) : (
                 <div className="divide-y divide-gray-100">
                   {filteredParticipants.map((participant) => (
-                    <div
+                    <button
                       key={participant.id}
-                      className="p-4 hover:bg-gray-50 transition-colors"
+                      onClick={() => fetchParticipantDetail(participant.id)}
+                      className={cn(
+                        "w-full p-4 text-left transition-colors",
+                        selectedParticipantId === participant.id
+                          ? "bg-blue-50 border-l-4 border-blue-500"
+                          : "hover:bg-gray-50"
+                      )}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -411,7 +479,7 @@ export default function SessionDetailPage() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                          {participant.chosenInterviewMode && (
+                          {!selectedParticipantId && participant.chosenInterviewMode && (
                             <span className="flex items-center gap-1 text-sm text-gray-500">
                               {getModeIcon(participant.chosenInterviewMode)}
                               <span className="capitalize">{participant.chosenInterviewMode}</span>
@@ -420,12 +488,34 @@ export default function SessionDetailPage() {
                           <StatusBadge status={participant.status} size="sm" />
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
             </div>
           </div>
+
+          {/* Participant Detail Panel */}
+          {selectedParticipantId && (
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-xl border border-gray-200 h-[calc(100vh-12rem)] sticky top-8">
+                {participantLoading ? (
+                  <div className="h-full flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                  </div>
+                ) : participantDetail ? (
+                  <ParticipantDetail
+                    participant={participantDetail}
+                    onClose={closeParticipantDetail}
+                  />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    참가자 정보를 불러올 수 없습니다.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

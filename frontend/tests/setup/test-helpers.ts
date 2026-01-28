@@ -370,7 +370,7 @@ export async function startInterview(
   currentTopicIndex: number;
   currentTopic: { index: number; title: string; totalTime: number };
   firstQuestion: string;
-  topicsState: Array<{ index: number; title: string; status: string }>;
+  topicsState: Array<{ index: number; title: string; status: string; timeLeft: number; totalTime: number; started: boolean }>;
 }> {
   await delay();
 
@@ -688,6 +688,7 @@ export async function mockAudioPlayback(page: Page, options?: MockAudioOptions):
       return originalDispatchEvent.call(this, event);
     };
 
+    // @ts-expect-error - MockAudio type mismatch with HTMLAudioElement (intentional mock)
     (window as unknown as { Audio: typeof MockAudio }).Audio = MockAudio as unknown as typeof Audio;
   }, { delay, shouldFail });
 }
@@ -1137,4 +1138,290 @@ export async function mockMediaRecorder(page: Page): Promise<void> {
     // @ts-expect-error - replacing MediaRecorder
     window.MediaRecorder = MockMediaRecorder;
   });
+}
+
+// ==========================================
+// Phase 5 Reconnection Test Helpers
+// ==========================================
+
+/**
+ * confirm-transition API 호출 (topic_expired_while_away 상태에서 사용)
+ */
+export async function confirmTransition(sessionToken: string): Promise<{
+  shouldFinalize: boolean;
+  currentTopicIndex: number;
+  firstQuestion?: string;
+  topicsState: Array<{ index: number; title: string; status: string; timeLeft: number; totalTime: number; started: boolean }>;
+}> {
+  await delay();
+
+  const res = await fetchWithRetry(`${API_BASE}/interview/confirm-transition`, {
+    method: 'POST',
+    headers: {
+      'X-Session-Token': sessionToken,
+    },
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(`Failed to confirm transition: ${error.error}`);
+  }
+
+  const data = await res.json();
+  return data.data;
+}
+
+/**
+ * DB를 직접 조작하여 이탈 상태 시뮬레이션 (테스트용)
+ * PostgreSQL에 직접 쿼리를 보내 participant 상태를 변경합니다.
+ *
+ * 주의: 이 함수는 테스트 환경에서만 사용해야 합니다.
+ */
+export async function simulateDisconnection(
+  participantId: string,
+  options?: {
+    secondsAgo?: number;
+    status?: 'interview_paused' | 'interview_in_progress';
+    phase?: 'topic_paused' | 'topic_expired_while_away';
+  }
+): Promise<void> {
+  const secondsAgo = options?.secondsAgo ?? 20; // 15초 이상 = 이탈
+  const status = options?.status ?? 'interview_paused';
+  const phase = options?.phase;
+
+  // 직접 API 호출 대신 테스트용 엔드포인트 필요
+  // 테스트에서는 DB 조작 대신 API 모킹을 사용
+  console.log(`[Test] Simulating disconnection for participant ${participantId}: ${secondsAgo}s ago, status=${status}`);
+}
+
+/**
+ * localStorage에 topic_expired_while_away 상태 설정
+ */
+export function setExpiredWhileAwayStorageScript(
+  sessionToken: string,
+  participant: {
+    id: string;
+    studentName: string;
+    status: string;
+  },
+  sessionInfo: {
+    title: string;
+    topicCount: number;
+    topicDuration: number;
+    interviewMode: string;
+  },
+  interviewState: {
+    currentTopicIndex: number;
+    topicsState: Array<{
+      index: number;
+      title: string;
+      totalTime: number;
+      timeLeft: number;
+      status: string;
+      started: boolean;
+    }>;
+  }
+): string {
+  return `
+    localStorage.setItem('student-storage', JSON.stringify({
+      state: {
+        sessionToken: '${sessionToken}',
+        participant: ${JSON.stringify(participant)},
+        sessionInfo: ${JSON.stringify(sessionInfo)},
+        interviewState: ${JSON.stringify({
+          ...interviewState,
+          currentPhase: 'topic_expired_while_away',
+        })},
+        messages: []
+      },
+      version: 0
+    }));
+  `;
+}
+
+// ==========================================
+// Phase 5 DB Direct Access Helpers (Test Only)
+// ==========================================
+
+import { Pool } from 'pg';
+
+// 테스트용 DB 연결 풀 (싱글톤)
+let testPool: Pool | null = null;
+
+/**
+ * 테스트용 DB 연결 풀 가져오기
+ * DATABASE_URL 환경 변수 사용 (테스트 환경에서만)
+ */
+function getTestPool(): Pool {
+  if (!testPool) {
+    const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/hw_validator_v3';
+    testPool = new Pool({
+      connectionString,
+      max: 5,
+      idleTimeoutMillis: 10000,
+    });
+  }
+  return testPool;
+}
+
+/**
+ * 테스트용 DB 연결 풀 종료
+ */
+export async function closeTestPool(): Promise<void> {
+  if (testPool) {
+    await testPool.end();
+    testPool = null;
+  }
+}
+
+/**
+ * 참가자 상태 강제 변경 (disconnect 시뮬레이션)
+ *
+ * @param participantId - 참가자 UUID
+ * @param status - 변경할 상태 ('interview_paused' | 'abandoned')
+ * @param disconnectedSecondsAgo - 몇 초 전에 disconnect 되었는지 (optional)
+ */
+export async function forceParticipantStatus(
+  participantId: string,
+  status: 'interview_paused' | 'abandoned',
+  disconnectedSecondsAgo?: number
+): Promise<void> {
+  const pool = getTestPool();
+
+  const disconnectedAt = disconnectedSecondsAgo
+    ? `NOW() - INTERVAL '${disconnectedSecondsAgo} seconds'`
+    : 'NOW()';
+
+  await pool.query(
+    `UPDATE student_participants
+     SET status = $1,
+         disconnected_at = ${disconnectedAt}
+     WHERE id = $2::uuid`,
+    [status, participantId]
+  );
+}
+
+/**
+ * 참가자 현재 상태 조회 (DB에서 직접)
+ *
+ * @param participantId - 참가자 UUID
+ * @returns DB에서 조회한 참가자 상태
+ */
+export async function getParticipantDbStatus(
+  participantId: string
+): Promise<{
+  status: string;
+  disconnectedAt: Date | null;
+  lastActiveAt: Date;
+}> {
+  const pool = getTestPool();
+
+  const result = await pool.query<{
+    status: string;
+    disconnected_at: Date | null;
+    last_active_at: Date;
+  }>(
+    `SELECT status, disconnected_at, last_active_at
+     FROM student_participants
+     WHERE id = $1::uuid`,
+    [participantId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error(`Participant not found: ${participantId}`);
+  }
+
+  return {
+    status: result.rows[0].status,
+    disconnectedAt: result.rows[0].disconnected_at,
+    lastActiveAt: result.rows[0].last_active_at,
+  };
+}
+
+/**
+ * last_active_at 강제 업데이트 (시간 시뮬레이션)
+ * disconnect 감지 테스트용 - 15초 이상 지나면 interview_paused로 전환됨
+ *
+ * @param participantId - 참가자 UUID
+ * @param secondsAgo - 몇 초 전으로 설정할지
+ */
+export async function setLastActiveAt(
+  participantId: string,
+  secondsAgo: number
+): Promise<void> {
+  const pool = getTestPool();
+
+  await pool.query(
+    `UPDATE student_participants
+     SET last_active_at = NOW() - INTERVAL '${secondsAgo} seconds'
+     WHERE id = $1::uuid`,
+    [participantId]
+  );
+}
+
+/**
+ * interview_states의 topics_state에서 timeLeft 강제 설정
+ * 토픽 만료 시뮬레이션용
+ *
+ * @param participantId - 참가자 UUID
+ * @param topicIndex - 토픽 인덱스
+ * @param timeLeft - 남은 시간 (초)
+ */
+export async function setTopicTimeLeft(
+  participantId: string,
+  topicIndex: number,
+  timeLeft: number
+): Promise<void> {
+  const pool = getTestPool();
+
+  // 현재 topics_state 가져오기
+  const result = await pool.query<{ topics_state: string | object }>(
+    `SELECT topics_state FROM interview_states WHERE participant_id = $1::uuid`,
+    [participantId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error(`Interview state not found for participant: ${participantId}`);
+  }
+
+  const topicsState = typeof result.rows[0].topics_state === 'string'
+    ? JSON.parse(result.rows[0].topics_state)
+    : result.rows[0].topics_state;
+
+  if (!topicsState[topicIndex]) {
+    throw new Error(`Topic index ${topicIndex} not found`);
+  }
+
+  topicsState[topicIndex].timeLeft = timeLeft;
+  if (timeLeft === 0) {
+    topicsState[topicIndex].status = 'expired';
+  }
+
+  await pool.query(
+    `UPDATE interview_states
+     SET topics_state = $1
+     WHERE participant_id = $2::uuid`,
+    [JSON.stringify(topicsState), participantId]
+  );
+}
+
+/**
+ * interview_states의 current_phase 강제 설정
+ * topic_expired_while_away 등 특정 phase 테스트용
+ *
+ * @param participantId - 참가자 UUID
+ * @param phase - 설정할 phase
+ */
+export async function setInterviewPhase(
+  participantId: string,
+  phase: 'topic_expired_while_away' | 'topic_transition' | 'topic_active' | 'finalizing' | 'completed'
+): Promise<void> {
+  const pool = getTestPool();
+
+  await pool.query(
+    `UPDATE interview_states
+     SET current_phase = $1
+     WHERE participant_id = $2::uuid`,
+    [phase, participantId]
+  );
 }

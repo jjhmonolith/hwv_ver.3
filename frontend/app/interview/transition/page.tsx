@@ -72,6 +72,41 @@ export default function TransitionPage() {
     setError(null);
 
     try {
+      // Use confirmTransition for topic_expired_while_away state
+      if (isExpiredWhileAway) {
+        const response = await api.interview.confirmTransition(sessionToken);
+
+        if (response.shouldFinalize) {
+          // Last topic - go to complete page (will call complete API there)
+          router.push('/interview/complete');
+        } else {
+          // Move to next topic
+          setInterviewState({
+            currentTopicIndex: response.currentTopicIndex,
+            currentPhase: 'topic_intro',
+            topicsState: response.topicsState.map((t) => ({
+              ...t,
+              status: t.status as 'pending' | 'active' | 'completed' | 'expired',
+            })),
+          });
+
+          // Set first question as initial message
+          if (response.firstQuestion) {
+            setMessages([
+              {
+                role: 'ai',
+                content: response.firstQuestion,
+                timestamp: new Date().toISOString(),
+              },
+            ]);
+          }
+
+          router.push('/interview');
+        }
+        return;
+      }
+
+      // Normal flow (not expired while away)
       if (isLastTopic) {
         // Last topic - complete interview
         const response = await api.interview.complete(sessionToken) as {

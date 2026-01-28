@@ -183,6 +183,34 @@ export const api = {
         method: 'POST',
         token,
       }),
+    getParticipant: (token: string, sessionId: string, participantId: string) =>
+      request<{
+        id: string;
+        studentName: string;
+        studentId: string | null;
+        status: string;
+        chosenInterviewMode: string | null;
+        submittedFileName: string | null;
+        submittedFileUrl: string | null;
+        analyzedTopics: Array<{ title: string; description?: string }> | null;
+        summary: {
+          score: number;
+          strengths: string[];
+          weaknesses: string[];
+          overallComment: string;
+        } | null;
+        registeredAt: string;
+        fileSubmittedAt: string | null;
+        interviewStartedAt: string | null;
+        interviewEndedAt: string | null;
+        conversations: Array<{
+          topicIndex: number;
+          turnIndex: number;
+          role: 'ai' | 'student';
+          content: string;
+          createdAt: string;
+        }>;
+      }>(`/api/sessions/${sessionId}/participants/${participantId}`, { token }),
   },
 
   // Join endpoints (Phase 3)
@@ -253,6 +281,24 @@ export const api = {
       }),
     topicTimeout: (sessionToken: string) =>
       request<{ state: unknown }>('/api/interview/topic-timeout', {
+        method: 'POST',
+        headers: { 'X-Session-Token': sessionToken },
+      }),
+    confirmTransition: (sessionToken: string) =>
+      request<{
+        shouldFinalize: boolean;
+        currentTopicIndex: number;
+        currentTopic?: { index: number; title: string; description?: string; totalTime: number };
+        firstQuestion?: string;
+        topicsState: Array<{
+          index: number;
+          title: string;
+          totalTime: number;
+          timeLeft: number;
+          status: string;
+          started: boolean;
+        }>;
+      }>('/api/interview/confirm-transition', {
         method: 'POST',
         headers: { 'X-Session-Token': sessionToken },
       }),

@@ -91,30 +91,54 @@ router.post('/reconnect', async (req: Request, res: Response): Promise<void> => 
         return;
       }
 
-      // Check if topic expired while away (for interview_in_progress status)
-      if (data.status === 'interview_in_progress' && data.topics_state) {
+      // Handle interview_paused or interview_in_progress status
+      if ((data.status === 'interview_paused' || data.status === 'interview_in_progress') && data.topics_state) {
         const topicsState = typeof data.topics_state === 'string'
           ? JSON.parse(data.topics_state)
           : data.topics_state;
         const currentTopic = topicsState[data.current_topic_index];
 
-        if (currentTopic && currentTopic.timeLeft <= timeDeducted) {
-          showTransitionPage = true;
-          expiredTopicTitle = currentTopic.title;
+        if (currentTopic) {
+          // Calculate new remaining time
+          const newTimeLeft = Math.max(0, currentTopic.timeLeft - timeDeducted);
 
-          // Update phase to topic_expired_while_away
-          await query(
-            `UPDATE interview_states SET current_phase = 'topic_expired_while_away' WHERE participant_id = $1`,
-            [data.id]
-          );
+          if (newTimeLeft === 0) {
+            // Topic expired while away
+            showTransitionPage = true;
+            expiredTopicTitle = currentTopic.title;
+            currentTopic.timeLeft = 0;
+            currentTopic.status = 'expired';
+
+            // Update phase to topic_expired_while_away
+            await query(
+              `UPDATE interview_states SET current_phase = 'topic_expired_while_away', topics_state = $1 WHERE participant_id = $2`,
+              [JSON.stringify(topicsState), data.id]
+            );
+          } else {
+            // Update timeLeft with deducted time
+            currentTopic.timeLeft = newTimeLeft;
+
+            await query(
+              `UPDATE interview_states SET topics_state = $1 WHERE participant_id = $2`,
+              [JSON.stringify(topicsState), data.id]
+            );
+          }
         }
       }
 
-      // Clear disconnected_at
-      await query(
-        `UPDATE student_participants SET disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
-        [data.id]
-      );
+      // Restore status from interview_paused to interview_in_progress (if not showing transition page)
+      if (data.status === 'interview_paused' && !showTransitionPage) {
+        await query(
+          `UPDATE student_participants SET status = 'interview_in_progress', disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
+          [data.id]
+        );
+      } else {
+        // Clear disconnected_at
+        await query(
+          `UPDATE student_participants SET disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
+          [data.id]
+        );
+      }
     }
 
     // Update last_active_at

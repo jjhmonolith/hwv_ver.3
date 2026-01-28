@@ -667,4 +667,94 @@ router.get('/:id/participants', async (req: Request, res: Response): Promise<voi
   }
 });
 
+/**
+ * GET /api/sessions/:id/participants/:participantId
+ * Get participant details with conversation history
+ */
+router.get('/:id/participants/:participantId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.teacher) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    const { id, participantId } = req.params;
+
+    // Verify session belongs to teacher
+    const sessionCheck = await query(
+      'SELECT id FROM assignment_sessions WHERE id = $1 AND teacher_id = $2',
+      [id, req.teacher.id]
+    );
+
+    if (sessionCheck.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Session not found',
+      });
+      return;
+    }
+
+    // Get participant details
+    const participantResult = await query(
+      `SELECT
+        id, student_name, student_id, status,
+        chosen_interview_mode, submitted_file_name, submitted_file_url,
+        analyzed_topics, summary,
+        registered_at, file_submitted_at,
+        interview_started_at, interview_ended_at
+       FROM student_participants
+       WHERE id = $1 AND session_id = $2`,
+      [participantId, id]
+    );
+
+    if (participantResult.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: 'Participant not found',
+      });
+      return;
+    }
+
+    const participant = participantResult.rows[0];
+
+    // Get conversation history
+    const conversationsResult = await query(
+      `SELECT topic_index, turn_index, role, content, created_at
+       FROM interview_conversations
+       WHERE participant_id = $1
+       ORDER BY topic_index ASC, turn_index ASC`,
+      [participantId]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: participant.id,
+        studentName: participant.student_name,
+        studentId: participant.student_id,
+        status: participant.status,
+        chosenInterviewMode: participant.chosen_interview_mode,
+        submittedFileName: participant.submitted_file_name,
+        submittedFileUrl: participant.submitted_file_url,
+        analyzedTopics: participant.analyzed_topics,
+        summary: participant.summary,
+        registeredAt: participant.registered_at,
+        fileSubmittedAt: participant.file_submitted_at,
+        interviewStartedAt: participant.interview_started_at,
+        interviewEndedAt: participant.interview_ended_at,
+        conversations: conversationsResult.rows.map((c) => ({
+          topicIndex: c.topic_index,
+          turnIndex: c.turn_index,
+          role: c.role,
+          content: c.content,
+          createdAt: c.created_at,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Get participant details error:', error);
+    res.status(500).json({ success: false, error: 'Failed to get participant details' });
+  }
+});
+
 export default router;

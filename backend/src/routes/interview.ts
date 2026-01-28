@@ -702,6 +702,147 @@ router.post('/topic-timeout', async (req: Request, res: Response): Promise<void>
 });
 
 /**
+ * POST /api/interview/confirm-transition
+ * Confirm topic transition after topic_expired_while_away (when student reconnects after topic expired)
+ */
+router.post('/confirm-transition', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    // Get current state
+    const stateResult = await query(
+      `SELECT
+        sp.extracted_text, sp.analyzed_topics,
+        ist.current_topic_index, ist.current_phase, ist.topics_state,
+        s.topic_duration
+       FROM student_participants sp
+       JOIN interview_states ist ON sp.id = ist.participant_id
+       JOIN assignment_sessions s ON sp.session_id = s.id
+       WHERE sp.id = $1`,
+      [req.participant.id]
+    );
+
+    if (stateResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Interview state not found' });
+      return;
+    }
+
+    const state = stateResult.rows[0];
+    const currentTopicIndex = state.current_topic_index;
+    const topicsState = state.topics_state || [];
+    const analyzedTopics = typeof state.analyzed_topics === 'string'
+      ? JSON.parse(state.analyzed_topics)
+      : state.analyzed_topics;
+    const topicDuration = state.topic_duration;
+
+    // Verify we're in topic_expired_while_away or topic_transition phase
+    if (!['topic_expired_while_away', 'topic_transition'].includes(state.current_phase)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid state for transition confirmation',
+      });
+      return;
+    }
+
+    // Mark current topic as expired/done
+    if (topicsState[currentTopicIndex]) {
+      topicsState[currentTopicIndex].status = 'expired';
+      topicsState[currentTopicIndex].timeLeft = 0;
+    }
+
+    // Check if this is the last topic
+    const nextTopicIndex = currentTopicIndex + 1;
+    const isLastTopic = nextTopicIndex >= analyzedTopics.length;
+
+    if (isLastTopic) {
+      // Last topic - signal to finalize
+      await query(
+        `UPDATE interview_states
+         SET current_phase = 'finalizing', topics_state = $1
+         WHERE participant_id = $2`,
+        [JSON.stringify(topicsState), req.participant.id]
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          message: 'Ready to finalize interview',
+          shouldFinalize: true,
+          currentTopicIndex,
+          topicsState,
+        },
+      });
+      return;
+    }
+
+    // Not last topic - move to next topic
+    // Activate next topic
+    if (topicsState[nextTopicIndex]) {
+      topicsState[nextTopicIndex].status = 'active';
+      topicsState[nextTopicIndex].timeLeft = topicDuration;
+      topicsState[nextTopicIndex].started = false;
+    }
+
+    // Generate first question for new topic
+    let firstQuestion: string;
+    try {
+      firstQuestion = await generateQuestion({
+        topic: analyzedTopics[nextTopicIndex],
+        assignmentText: state.extracted_text,
+        previousConversation: [],
+      });
+    } catch (error) {
+      console.error('Failed to generate first question for new topic:', error);
+      firstQuestion = `${analyzedTopics[nextTopicIndex].title}에 대해 설명해 주세요.`;
+    }
+
+    // Update interview state
+    await query(
+      `UPDATE interview_states
+       SET current_topic_index = $1, current_phase = 'topic_intro', topics_state = $2, topic_started_at = NULL
+       WHERE participant_id = $3`,
+      [nextTopicIndex, JSON.stringify(topicsState), req.participant.id]
+    );
+
+    // Save first question
+    await query(
+      `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
+       VALUES ($1, $2, 0, 'ai', $3)`,
+      [req.participant.id, nextTopicIndex, firstQuestion]
+    );
+
+    // Restore participant status to interview_in_progress
+    await query(
+      `UPDATE student_participants SET status = 'interview_in_progress' WHERE id = $1`,
+      [req.participant.id]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Transition confirmed, moving to next topic',
+        shouldFinalize: false,
+        currentTopicIndex: nextTopicIndex,
+        currentTopic: {
+          index: nextTopicIndex,
+          title: analyzedTopics[nextTopicIndex].title,
+          description: analyzedTopics[nextTopicIndex].description,
+          totalTime: topicDuration,
+        },
+        firstQuestion,
+        topicsState,
+      },
+    });
+  } catch (error) {
+    console.error('Confirm transition error:', error);
+    res.status(500).json({ success: false, error: 'Failed to confirm transition' });
+  }
+});
+
+/**
  * POST /api/interview/complete
  * Complete interview and generate summary
  */
