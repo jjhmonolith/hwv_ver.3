@@ -196,30 +196,18 @@ export default function StartPage() {
           </div>
         </div>
 
-        {/* Topics Preview */}
+        {/* Interview Info - 주제 세부사항 숨김 */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-slate-900">분석된 주제</h2>
-            <span className="text-sm text-slate-500">
-              {topics.length}개 주제, 각 {formatDuration(sessionInfo?.topicDuration || 180)}
-            </span>
-          </div>
-
-          <div className="space-y-3 mb-6">
-            {topics.map((topic: Topic, index: number) => (
-              <div
-                key={index}
-                className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg"
-              >
-                <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
-                  {index + 1}
-                </span>
-                <div>
-                  <p className="font-medium text-slate-900">{topic.title}</p>
-                  <p className="text-sm text-slate-500">{topic.description}</p>
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+              <FileText className="h-6 w-6 text-blue-500" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">인터뷰 준비 완료</h2>
+              <p className="text-slate-600">
+                {topics.length}개의 주제가 준비되었습니다
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg text-blue-700 text-sm">
