@@ -87,7 +87,7 @@ Respond in JSON format:
     const response = await client.responses.create({
       model,
       instructions,
-      input: `다음 과제 텍스트를 분석하고 ${topicCount}개의 주요 주제를 추출해주세요:\n\n${extractedText.slice(0, 15000)}`,
+      input: `다음 과제 텍스트를 분석하고 ${topicCount}개의 주요 주제를 JSON 형식으로 추출해주세요:\n\n${extractedText.slice(0, 15000)}`,
       text: { format: { type: 'json_object' } },
       reasoning: { effort: reasoningEffort },
     });
@@ -224,7 +224,7 @@ Respond in JSON format:
     const response = await client.responses.create({
       model,
       instructions,
-      input: `과제 내용 (일부):\n${assignmentText.slice(0, 5000)}\n\n인터뷰 기록:\n${conversationSummary}`,
+      input: `다음 인터뷰를 평가하고 JSON 형식으로 결과를 제공해주세요.\n\n과제 내용 (일부):\n${assignmentText.slice(0, 5000)}\n\n인터뷰 기록:\n${conversationSummary}`,
       text: { format: { type: 'json_object' } },
       reasoning: { effort: reasoningEffort },
     });
