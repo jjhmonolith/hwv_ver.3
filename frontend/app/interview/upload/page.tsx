@@ -305,36 +305,30 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Analyzed Topics */}
+        {/* Analysis Complete */}
         {analyzedTopics && (
           <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <h2 className="text-lg font-bold text-slate-900">분석 완료!</h2>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                <CheckCircle className="h-6 w-6 text-green-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">분석 완료!</h2>
+                <p className="text-slate-600">
+                  AI가 과제에서 {analyzedTopics.length}개의 주제를 추출했습니다
+                </p>
+              </div>
             </div>
-            <p className="text-slate-600 mb-4">
-              AI가 과제에서 다음 {analyzedTopics.length}개의 주제를 추출했습니다:
-            </p>
-            <ul className="space-y-3">
-              {analyzedTopics.map((topic, index) => (
-                <li
-                  key={index}
-                  className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg"
-                >
-                  <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
-                    {index + 1}
-                  </span>
-                  <div>
-                    <p className="font-medium text-slate-900">{topic.title}</p>
-                    <p className="text-sm text-slate-500">{topic.description}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
+              <p className="text-sm text-blue-800">
+                인터뷰 준비가 완료되었습니다. 다음 단계에서 인터뷰 모드를 선택하고 시작할 수 있습니다.
+              </p>
+            </div>
 
             <button
               onClick={handleContinue}
-              className="w-full flex items-center justify-center gap-2 py-3 px-6 mt-6 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all"
+              className="w-full flex items-center justify-center gap-2 py-3 px-6 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all"
             >
               다음 단계로
               <ArrowRight className="h-5 w-5" />

@@ -21,6 +21,7 @@ interface FormData {
   topicCount: number;
   topicDuration: number;
   interviewMode: InterviewMode;
+  assignmentInfo: string;
 }
 
 const initialFormData: FormData = {
@@ -29,6 +30,7 @@ const initialFormData: FormData = {
   topicCount: 3,
   topicDuration: 180,
   interviewMode: 'student_choice',
+  assignmentInfo: '',
 };
 
 export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
@@ -82,6 +84,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         topicCount: formData.topicCount,
         topicDuration: formData.topicDuration,
         interviewMode: formData.interviewMode,
+        assignmentInfo: formData.assignmentInfo.trim() || undefined,
       });
 
       const newSession: Session = {
@@ -215,6 +218,23 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
                 <p className="mt-1.5 text-sm text-red-600">{errors.topicDuration}</p>
               )}
             </div>
+          </div>
+
+          {/* Assignment Info */}
+          <div className="w-full">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              과제 정보 <span className="text-gray-400 text-xs">(선택)</span>
+            </label>
+            <textarea
+              className="w-full px-3 py-2 text-gray-900 placeholder-gray-400 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+              placeholder="AI 분석 및 질문 생성에 활용될 과제 관련 정보를 입력하세요. 예: 과제 목표, 핵심 키워드, 평가 기준 등..."
+              rows={3}
+              value={formData.assignmentInfo}
+              onChange={handleInputChange('assignmentInfo')}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              이 정보는 주제 분석 및 인터뷰 질문 생성 시 참고됩니다
+            </p>
           </div>
 
           {/* Interview Mode */}

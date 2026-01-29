@@ -47,6 +47,8 @@ export interface QuestionContext {
     role: 'ai' | 'student';
     content: string;
   }>;
+  assignmentInfo?: string;
+  topicDuration?: number;
 }
 
 /**
@@ -55,19 +57,25 @@ export interface QuestionContext {
  */
 export async function analyzeTopics(
   extractedText: string,
-  topicCount: number
+  topicCount: number,
+  assignmentInfo?: string
 ): Promise<Topic[]> {
   const model = process.env.OPENAI_MODEL || 'gpt-5.2';
   const reasoningEffort = getReasoningEffort();
 
+  const assignmentContext = assignmentInfo
+    ? `\n\nAssignment Context (provided by teacher):\n${assignmentInfo}\n\nUse this context to focus on the most relevant and important aspects of the assignment.`
+    : '';
+
   const instructions = `You are an expert educational assessor analyzing student homework submissions.
-Your task is to identify the ${topicCount} most important and distinct topics from the submitted text for an oral interview.
+Your task is to identify the ${topicCount} most important and distinct topics from the submitted text for an oral interview.${assignmentContext}
 
 Requirements:
 1. Each topic should be specific and discussable
 2. Topics should cover different aspects of the work
 3. Avoid overlapping topics
 4. Focus on areas where the student's understanding can be verified
+5. If assignment context is provided, prioritize topics that align with the assignment's core objectives
 
 Respond in JSON format:
 {
@@ -132,22 +140,41 @@ export async function generateQuestion(
     .map((msg) => `${msg.role === 'ai' ? 'AI' : '학생'}: ${msg.content}`)
     .join('\n');
 
+  // Adjust question complexity based on topic duration
+  const duration = context.topicDuration || 180;
+  let complexityGuideline = '';
+  if (duration <= 90) {
+    complexityGuideline = '\n6. Keep questions short and focused - student has limited time (90 seconds or less per topic)';
+  } else if (duration <= 180) {
+    complexityGuideline = '\n6. Ask moderately detailed questions - student has about 3 minutes per topic';
+  } else {
+    complexityGuideline = '\n6. You may ask more in-depth questions - student has ample time (5+ minutes per topic)';
+  }
+
+  // Add assignment context if provided
+  const assignmentContext = context.assignmentInfo
+    ? `\n\nAssignment Context: ${context.assignmentInfo}\nFocus questions on the core objectives mentioned in this context.`
+    : '';
+
   const instructions = `You are conducting an oral interview to verify a student's authorship of their homework.
 Your goal is to ask probing questions that reveal whether the student truly understands and wrote the content.
 
 Current topic: ${context.topic.title}
-Topic description: ${context.topic.description}
+Topic description: ${context.topic.description}${assignmentContext}
 
 Guidelines:
 1. Ask open-ended questions that require understanding, not memorization
 2. Build on previous answers if available
 3. Be conversational but focused
 4. Questions should be in Korean
-5. Keep questions concise and clear`;
+5. Keep questions concise and clear${complexityGuideline}`;
 
   const input = conversationHistory
     ? `이전 대화:\n${conversationHistory}\n\n다음 질문을 생성해주세요.`
     : `과제 내용:\n${context.assignmentText.slice(0, 5000)}\n\n이 주제에 대한 첫 번째 질문을 생성해주세요.`;
+
+  // Dynamic token limit based on duration
+  const maxTokens = duration >= 300 ? 1000 : duration >= 180 ? 800 : 500;
 
   try {
     const client = getOpenAIClient();
@@ -157,7 +184,7 @@ Guidelines:
       instructions,
       input,
       reasoning: { effort: reasoningEffort },
-      max_output_tokens: 300,
+      max_output_tokens: maxTokens,
     });
 
     const content = response.output_text;

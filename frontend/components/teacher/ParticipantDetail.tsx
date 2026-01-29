@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { StatusBadge, BadgeStatus } from '@/components/ui/StatusBadge';
 import { ConversationView } from './ConversationView';
-import { Download, FileText, Mic, MessageSquare, X } from 'lucide-react';
+import { Download, FileText, Mic, MessageSquare, X, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 
 interface Conversation {
   topicIndex: number;
@@ -43,14 +44,67 @@ interface ParticipantData {
 
 interface ParticipantDetailProps {
   participant: ParticipantData;
+  sessionId: string;
+  token: string;
   onClose: () => void;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
 
-export function ParticipantDetail({ participant, onClose }: ParticipantDetailProps) {
+export function ParticipantDetail({ participant, sessionId, token, onClose }: ParticipantDetailProps) {
+  const [expandedTopics, setExpandedTopics] = useState<number[]>([]);
+  const [isDownloading, setIsDownloading] = useState(false);
   const showSummary = participant.summary &&
     ['completed', 'timeout'].includes(participant.status);
+
+  const toggleTopic = (index: number) => {
+    setExpandedTopics(prev =>
+      prev.includes(index)
+        ? prev.filter(i => i !== index)
+        : [...prev, index]
+    );
+  };
+
+  const toggleAllTopics = () => {
+    if (expandedTopics.length === (participant.analyzedTopics?.length || 0)) {
+      setExpandedTopics([]);
+    } else {
+      setExpandedTopics(participant.analyzedTopics?.map((_, i) => i) || []);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (isDownloading || !participant.submittedFileUrl) return;
+
+    setIsDownloading(true);
+    try {
+      const response = await fetch(
+        `${API_URL}/api/sessions/${sessionId}/participants/${participant.id}/download`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = participant.submittedFileName || 'download.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('파일 다운로드에 실패했습니다');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -107,6 +161,55 @@ export function ParticipantDetail({ participant, onClose }: ParticipantDetailPro
           </div>
         </section>
 
+        {/* Analyzed Topics Section */}
+        {participant.analyzedTopics && participant.analyzedTopics.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                분석된 주제 ({participant.analyzedTopics.length}개)
+              </h3>
+              <button
+                onClick={toggleAllTopics}
+                className="text-xs text-blue-600 hover:text-blue-700"
+              >
+                {expandedTopics.length === participant.analyzedTopics.length ? '모두 접기' : '모두 펼치기'}
+              </button>
+            </div>
+            <div className="space-y-2">
+              {participant.analyzedTopics.map((topic, index) => (
+                <div key={index} className="bg-gray-50 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleTopic(index)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <span className="font-medium text-gray-900">{topic.title}</span>
+                    </div>
+                    {expandedTopics.includes(index) ? (
+                      <ChevronUp className="w-4 h-4 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                    )}
+                  </button>
+                  {expandedTopics.includes(index) && topic.description && (
+                    <div className="px-3 pb-3 pt-0">
+                      <div className="ml-9 p-3 bg-white rounded border border-gray-200">
+                        <div className="flex items-start gap-2">
+                          <BookOpen className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                          <p className="text-sm text-gray-600">{topic.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Submitted File Section */}
         {participant.submittedFileName && (
           <section>
@@ -120,15 +223,14 @@ export function ParticipantDetail({ participant, onClose }: ParticipantDetailPro
                   <span className="font-medium">{participant.submittedFileName}</span>
                 </div>
                 {participant.submittedFileUrl && (
-                  <a
-                    href={`${API_URL}${participant.submittedFileUrl}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors"
+                  <button
+                    onClick={handleDownload}
+                    disabled={isDownloading}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
                   >
                     <Download className="w-4 h-4" />
-                    다운로드
-                  </a>
+                    {isDownloading ? '다운로드 중...' : '다운로드'}
+                  </button>
                 )}
               </div>
             </div>

@@ -17,6 +17,8 @@ import {
   Trash2,
   RefreshCw,
   Users,
+  Link2,
+  Check,
 } from 'lucide-react';
 
 type FilterStatus = 'all' | 'draft' | 'active' | 'closed';
@@ -31,6 +33,32 @@ export default function TeacherDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Copy join URL to clipboard
+  const copyJoinUrl = async (e: React.MouseEvent, session: Session) => {
+    e.stopPropagation();
+    if (!session.accessCode) return;
+
+    const frontendUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || window.location.origin;
+    const joinUrl = `${frontendUrl}/join/${session.accessCode}`;
+
+    try {
+      await navigator.clipboard.writeText(joinUrl);
+      setCopiedId(session.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = joinUrl;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopiedId(session.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -231,7 +259,8 @@ export default function TeacherDashboardPage() {
             {filteredSessions.map((session) => (
               <div
                 key={session.id}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+                onClick={() => router.push(`/teacher/sessions/${session.id}`)}
+                className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
               >
                 {/* Card Header */}
                 <div className="p-4 border-b border-gray-100">
@@ -285,7 +314,7 @@ export default function TeacherDashboardPage() {
                         variant="primary"
                         size="sm"
                         leftIcon={<PlayCircle className="h-4 w-4" />}
-                        onClick={() => handleActivate(session.id)}
+                        onClick={(e) => { e.stopPropagation(); handleActivate(session.id); }}
                         isLoading={actionLoading === session.id}
                       >
                         Activate
@@ -294,7 +323,7 @@ export default function TeacherDashboardPage() {
                         variant="ghost"
                         size="sm"
                         leftIcon={<Trash2 className="h-4 w-4" />}
-                        onClick={() => handleDelete(session.id)}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(session.id); }}
                         disabled={actionLoading === session.id}
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
@@ -309,22 +338,24 @@ export default function TeacherDashboardPage() {
                         variant="secondary"
                         size="sm"
                         leftIcon={<QrCode className="h-4 w-4" />}
-                        onClick={() => router.push(`/teacher/sessions/${session.id}/qr`)}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/teacher/sessions/${session.id}/qr`); }}
                       >
-                        QR Code
+                        QR
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         size="sm"
-                        onClick={() => router.push(`/teacher/sessions/${session.id}`)}
+                        leftIcon={copiedId === session.id ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                        onClick={(e) => copyJoinUrl(e, session)}
+                        className={copiedId === session.id ? 'text-green-600' : ''}
                       >
-                        Details
+                        {copiedId === session.id ? 'Copied!' : 'URL'}
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         leftIcon={<XCircle className="h-4 w-4" />}
-                        onClick={() => handleClose(session.id)}
+                        onClick={(e) => { e.stopPropagation(); handleClose(session.id); }}
                         isLoading={actionLoading === session.id}
                         className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
                       >
@@ -333,13 +364,15 @@ export default function TeacherDashboardPage() {
                     </>
                   )}
 
-                  {session.status === 'closed' && (
+                  {session.status === 'closed' && session.accessCode && (
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => router.push(`/teacher/sessions/${session.id}`)}
+                      leftIcon={copiedId === session.id ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                      onClick={(e) => copyJoinUrl(e, session)}
+                      className={copiedId === session.id ? 'text-green-600' : ''}
                     >
-                      View Results
+                      {copiedId === session.id ? 'Copied!' : 'Copy URL'}
                     </Button>
                   )}
                 </div>

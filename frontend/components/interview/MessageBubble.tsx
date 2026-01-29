@@ -1,5 +1,6 @@
 'use client';
 
+import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 
 interface MessageBubbleProps {
@@ -55,6 +56,27 @@ export function MessageBubble({
               <div className="w-2 h-2 bg-current rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
             </div>
             <span className="text-sm opacity-70">생각 중...</span>
+          </div>
+        ) : isAi ? (
+          <div className="prose prose-sm max-w-none prose-slate">
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc ml-4 mb-2 space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal ml-4 mb-2 space-y-1">{children}</ol>,
+                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                em: ({ children }) => <em className="italic">{children}</em>,
+                code: ({ children }) => (
+                  <code className="bg-slate-200 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 border-slate-300 pl-3 italic text-slate-600">{children}</blockquote>
+                ),
+              }}
+            >
+              {content}
+            </ReactMarkdown>
           </div>
         ) : (
           <p className="whitespace-pre-wrap leading-relaxed">{content}</p>

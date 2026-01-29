@@ -20,6 +20,8 @@ import {
   Mic,
   RefreshCw,
   Loader2,
+  Link2,
+  Check,
 } from 'lucide-react';
 
 interface SessionDetail {
@@ -91,6 +93,7 @@ export default function SessionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [urlCopySuccess, setUrlCopySuccess] = useState(false);
 
   // Participant detail state
   const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
@@ -187,6 +190,29 @@ export default function SessionDetailPage() {
       document.body.removeChild(textarea);
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
+    }
+  };
+
+  const copyJoinUrl = async () => {
+    if (!session?.accessCode) return;
+
+    const frontendUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || window.location.origin;
+    const joinUrl = `${frontendUrl}/join/${session.accessCode}`;
+
+    try {
+      await navigator.clipboard.writeText(joinUrl);
+      setUrlCopySuccess(true);
+      setTimeout(() => setUrlCopySuccess(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = joinUrl;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setUrlCopySuccess(true);
+      setTimeout(() => setUrlCopySuccess(false), 2000);
     }
   };
 
@@ -373,7 +399,7 @@ export default function SessionDetailPage() {
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Access Code</h2>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-4">
                   <span className="flex-1 px-4 py-3 bg-gray-100 rounded-lg font-mono text-2xl text-center">
                     {session.accessCode}
                   </span>
@@ -384,6 +410,20 @@ export default function SessionDetailPage() {
                     onClick={copyAccessCode}
                   >
                     {copySuccess ? 'Copied!' : 'Copy'}
+                  </Button>
+                </div>
+
+                {/* Join URL Copy */}
+                <div className="pt-3 border-t border-gray-100">
+                  <p className="text-sm text-gray-500 mb-2">Student Join URL</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    leftIcon={urlCopySuccess ? <Check className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                    onClick={copyJoinUrl}
+                  >
+                    {urlCopySuccess ? 'URL Copied!' : 'Copy Join URL'}
                   </Button>
                 </div>
               </div>
@@ -506,6 +546,8 @@ export default function SessionDetailPage() {
                 ) : participantDetail ? (
                   <ParticipantDetail
                     participant={participantDetail}
+                    sessionId={sessionId}
+                    token={token || ''}
                     onClose={closeParticipantDetail}
                   />
                 ) : (

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../db/connection.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { downloadFile, isStorageConfigured } from '../services/storage.js';
 
 const router = Router();
 
@@ -93,6 +94,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       topicCount = 3,
       topicDuration = 180,
       interviewMode = 'student_choice',
+      assignmentInfo,
     } = req.body;
 
     // Validate title
@@ -141,8 +143,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     const result = await query(
       `INSERT INTO assignment_sessions
-        (teacher_id, title, description, topic_count, topic_duration, interview_mode)
-       VALUES ($1, $2, $3, $4, $5, $6)
+        (teacher_id, title, description, topic_count, topic_duration, interview_mode, assignment_info)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
         req.teacher.id,
@@ -151,6 +153,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         topicCount,
         topicDuration,
         interviewMode,
+        assignmentInfo?.trim() || null,
       ]
     );
 
@@ -167,6 +170,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
           topicCount: session.topic_count,
           topicDuration: session.topic_duration,
           interviewMode: session.interview_mode,
+          assignmentInfo: session.assignment_info,
           status: session.status,
           createdAt: session.created_at,
         },
@@ -226,6 +230,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
         topicCount: session.topic_count,
         topicDuration: session.topic_duration,
         interviewMode: session.interview_mode,
+        assignmentInfo: session.assignment_info,
         accessCode: session.access_code,
         status: session.status,
         reconnectTimeout: session.reconnect_timeout,
@@ -754,6 +759,73 @@ router.get('/:id/participants/:participantId', async (req: Request, res: Respons
   } catch (error) {
     console.error('Get participant details error:', error);
     res.status(500).json({ success: false, error: 'Failed to get participant details' });
+  }
+});
+
+/**
+ * GET /api/sessions/:id/participants/:participantId/download
+ * Download participant's submitted file
+ */
+router.get('/:id/participants/:participantId/download', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.teacher) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    const { id, participantId } = req.params;
+
+    // Verify session belongs to teacher
+    const sessionResult = await query(
+      'SELECT id FROM assignment_sessions WHERE id = $1 AND teacher_id = $2',
+      [id, req.teacher.id]
+    );
+
+    if (sessionResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Session not found' });
+      return;
+    }
+
+    // Get participant file info
+    const participantResult = await query(
+      `SELECT submitted_file_name, submitted_file_url
+       FROM student_participants
+       WHERE id = $1 AND session_id = $2`,
+      [participantId, id]
+    );
+
+    if (participantResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Participant not found' });
+      return;
+    }
+
+    const { submitted_file_name: fileName, submitted_file_url: fileUrl } = participantResult.rows[0];
+
+    if (!fileUrl) {
+      res.status(404).json({ success: false, error: 'No file available for download' });
+      return;
+    }
+
+    if (!isStorageConfigured()) {
+      res.status(503).json({ success: false, error: 'Storage service not configured' });
+      return;
+    }
+
+    // Download file from Supabase
+    const buffer = await downloadFile(fileUrl);
+
+    // RFC 5987 encoding for Korean filenames
+    const encodedFilename = encodeURIComponent(fileName || 'download.pdf')
+      .replace(/['()]/g, escape)
+      .replace(/\*/g, '%2A');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (error) {
+    console.error('Download file error:', error);
+    res.status(500).json({ success: false, error: 'Failed to download file' });
   }
 });
 

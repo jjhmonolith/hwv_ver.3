@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 interface Conversation {
   topicIndex: number;
@@ -111,9 +112,28 @@ export function ConversationView({ conversations, topics }: ConversationViewProp
                           {formatTime(conv.createdAt)}
                         </span>
                       </div>
-                      <div className="text-gray-700 whitespace-pre-wrap text-sm">
-                        {conv.content}
-                      </div>
+                      {conv.role === 'ai' ? (
+                        <div className="text-gray-700 text-sm prose prose-sm max-w-none">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                              ul: ({ children }) => <ul className="list-disc ml-4 my-1">{children}</ul>,
+                              ol: ({ children }) => <ol className="list-decimal ml-4 my-1">{children}</ol>,
+                              li: ({ children }) => <li>{children}</li>,
+                              strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                              code: ({ children }) => (
+                                <code className="bg-gray-200 px-1 rounded text-xs">{children}</code>
+                              ),
+                            }}
+                          >
+                            {conv.content}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div className="text-gray-700 whitespace-pre-wrap text-sm">
+                          {conv.content}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

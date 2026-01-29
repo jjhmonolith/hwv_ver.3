@@ -4,6 +4,7 @@ import pdfParse from 'pdf-parse';
 import { query } from '../db/connection.js';
 import { studentAuthMiddleware } from '../middleware/studentAuth.js';
 import { analyzeTopics, generateQuestion, evaluateInterview } from '../services/llm.js';
+import { uploadFile, isStorageConfigured } from '../services/storage.js';
 
 const router = Router();
 
@@ -75,9 +76,9 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return;
     }
 
-    // Get topic count from session
+    // Get topic count and assignment info from session
     const sessionResult = await query(
-      'SELECT topic_count FROM assignment_sessions WHERE id = $1',
+      'SELECT topic_count, assignment_info FROM assignment_sessions WHERE id = $1',
       [req.participant.sessionId]
     );
 
@@ -89,12 +90,12 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return;
     }
 
-    const topicCount = sessionResult.rows[0].topic_count;
+    const { topic_count: topicCount, assignment_info: assignmentInfo } = sessionResult.rows[0];
 
     // Analyze topics with LLM
     let analyzedTopics;
     try {
-      analyzedTopics = await analyzeTopics(extractedText, topicCount);
+      analyzedTopics = await analyzeTopics(extractedText, topicCount, assignmentInfo);
     } catch (llmError) {
       console.error('LLM analysis error:', llmError);
       res.status(500).json({
@@ -104,19 +105,36 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return;
     }
 
+    // Upload to Supabase Storage if configured
+    let fileUrl: string | null = null;
+    if (isStorageConfigured()) {
+      try {
+        fileUrl = await uploadFile(
+          req.file.buffer,
+          req.file.originalname,
+          req.participant.sessionId,
+          req.participant.id
+        );
+      } catch (storageError) {
+        console.error('Storage upload error (continuing without file storage):', storageError);
+      }
+    }
+
     // Save to participant
     await query(
       `UPDATE student_participants
        SET extracted_text = $1,
            analyzed_topics = $2,
            submitted_file_name = $3,
+           submitted_file_url = $4,
            file_submitted_at = NOW(),
            status = 'file_submitted'
-       WHERE id = $4`,
+       WHERE id = $5`,
       [
         extractedText,
         JSON.stringify(analyzedTopics),
         req.file.originalname,
+        fileUrl,
         req.participant.id,
       ]
     );
