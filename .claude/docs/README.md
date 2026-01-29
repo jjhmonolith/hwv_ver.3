@@ -29,6 +29,7 @@
 | [04-database.md](./04-database.md) | 5개 테이블 스키마, 트리거, 함수 | Phase 1 DB 구현 시 |
 | [05-api.md](./05-api.md) | 30+ API 엔드포인트 명세 | 모든 API 구현 시 |
 | [06-implementation.md](./06-implementation.md) | 6 Phase 구현 계획, 체크리스트 | 전체 진행 추적 |
+| [07-openai-api.md](./07-openai-api.md) | **OpenAI Responses API + GPT-5.2 가이드** | LLM 관련 작업 시 (필독) |
 
 ---
 
