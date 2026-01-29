@@ -33,11 +33,16 @@ export default function UploadPage() {
     setIsHydrated(true);
   }, []);
 
-  // Redirect if not authenticated (only after hydration)
+  // Redirect if not authenticated or already uploaded (only after hydration)
   useEffect(() => {
     if (!isHydrated) return;
     if (!sessionToken || !participant) {
       router.push('/join');
+      return;
+    }
+    // 이미 파일 업로드 완료된 경우 인터뷰 준비 화면으로 이동
+    if (participant.status !== 'registered') {
+      router.push('/interview/start');
     }
   }, [isHydrated, sessionToken, participant, router]);
 
@@ -163,7 +168,7 @@ export default function UploadPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  if (!sessionToken || !participant) {
+  if (!sessionToken || !participant || participant.status !== 'registered') {
     return null;
   }
 
