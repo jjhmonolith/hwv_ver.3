@@ -86,7 +86,8 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
       );
 
       if (!response.ok) {
-        throw new Error('Download failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '파일 다운로드에 실패했습니다');
       }
 
       const blob = await response.blob();
@@ -100,7 +101,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download error:', error);
-      alert('파일 다운로드에 실패했습니다');
+      alert(error instanceof Error ? error.message : '파일 다운로드에 실패했습니다');
     } finally {
       setIsDownloading(false);
     }
