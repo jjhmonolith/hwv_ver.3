@@ -8,6 +8,28 @@ import { uploadFile, isStorageConfigured } from '../services/storage.js';
 
 const router = Router();
 
+/**
+ * Fix filename encoding issue from Multer
+ * Multer decodes multipart filename as latin1, but browsers encode as UTF-8
+ * This function re-interprets the latin1 string as UTF-8
+ */
+function decodeFilename(filename: string): string {
+  try {
+    // Convert latin1 string back to bytes, then decode as UTF-8
+    const bytes = Buffer.from(filename, 'latin1');
+    const decoded = bytes.toString('utf-8');
+
+    // Verify it's valid UTF-8 by checking for replacement character
+    if (decoded.includes('\ufffd')) {
+      return filename;
+    }
+
+    return decoded;
+  } catch {
+    return filename;
+  }
+}
+
 // Apply student auth middleware to all routes
 router.use(studentAuthMiddleware);
 
@@ -105,13 +127,16 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return;
     }
 
+    // Decode filename (fix Multer latin1 encoding issue)
+    const decodedFilename = decodeFilename(req.file.originalname);
+
     // Upload to Supabase Storage if configured
     let fileUrl: string | null = null;
     if (isStorageConfigured()) {
       try {
         fileUrl = await uploadFile(
           req.file.buffer,
-          req.file.originalname,
+          decodedFilename,
           req.participant.sessionId,
           req.participant.id
         );
@@ -133,7 +158,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       [
         extractedText,
         JSON.stringify(analyzedTopics),
-        req.file.originalname,
+        decodedFilename,
         fileUrl,
         req.participant.id,
       ]
@@ -145,7 +170,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         message: 'File analyzed successfully',
         extractedTextLength: extractedText.length,
         analyzedTopics,
-        fileName: req.file.originalname,
+        fileName: decodedFilename,
       },
     });
   } catch (error) {

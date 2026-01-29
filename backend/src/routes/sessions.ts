@@ -802,7 +802,7 @@ router.get('/:id/participants/:participantId/download', async (req: Request, res
     const { submitted_file_name: fileName, submitted_file_url: fileUrl } = participantResult.rows[0];
 
     if (!fileUrl) {
-      res.status(404).json({ success: false, error: 'No file available for download' });
+      res.status(404).json({ success: false, error: '파일 저장소가 설정되지 않아 다운로드할 수 없습니다. 관리자에게 문의하세요.' });
       return;
     }
 
