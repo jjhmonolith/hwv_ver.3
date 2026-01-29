@@ -66,6 +66,7 @@ CREATE TABLE assignment_sessions (
     topic_count INTEGER NOT NULL DEFAULT 3 CHECK (topic_count BETWEEN 1 AND 5),
     topic_duration INTEGER NOT NULL DEFAULT 180 CHECK (topic_duration BETWEEN 60 AND 600),
     interview_mode interview_mode NOT NULL DEFAULT 'student_choice',
+    assignment_info TEXT, -- Optional assignment context for LLM prompts
 
     -- Access info
     access_code VARCHAR(6) UNIQUE,
