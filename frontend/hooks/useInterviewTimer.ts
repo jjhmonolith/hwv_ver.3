@@ -23,11 +23,10 @@ interface UseInterviewTimerReturn {
 }
 
 /**
- * Activity-based timer hook for interview
- * Timer only ticks when student is actively engaged
- * Pauses during AI response generation
+ * Timer hook for interview
+ * Timer runs continuously once the topic starts, only pausing during AI response generation
  *
- * Chat mode: Timer runs when typing or topic started, pauses during AI generation
+ * Chat mode: Timer runs when topic started, pauses only during AI generation
  * Voice mode: Timer runs when topic started, pauses during AI speaking/transcribing/generating
  */
 export function useInterviewTimer({
@@ -52,16 +51,14 @@ export function useInterviewTimer({
     setTimeLeft(totalTime);
   }, [totalTime]);
 
-  // Activity-based timer logic
-  // Chat mode: Timer ticks when (typing OR topic started) AND NOT ai generating
-  // Voice mode: Timer ticks when topic started AND NOT (speaking OR transcribing OR ai generating)
+  // Timer logic:
+  // Timer runs when topic is started AND AI is not generating/speaking/transcribing
+  // Once the topic starts (AI question is displayed), time flows continuously
+  // Only pauses during AI response generation (to not penalize network/processing delays)
   //
-  // Combined logic (voice mode props default to false for chat mode compatibility):
-  // Timer runs when: (typing OR topic started) AND NOT speaking AND NOT transcribing AND NOT aiGenerating
-  //
-  // Note: Student recording (isRecording) does NOT pause the timer - time continues while student speaks
+  // Note: isTyping is kept for backward compatibility but no longer affects timer
   const shouldTick =
-    (isTyping || isTopicStarted) && !isSpeaking && !isTranscribing && !aiGenerating;
+    isTopicStarted && !isSpeaking && !isTranscribing && !aiGenerating;
   const isPaused = !shouldTick;
 
   useEffect(() => {

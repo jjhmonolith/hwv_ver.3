@@ -68,6 +68,11 @@ export default function InterviewPage() {
     }).catch(console.error);
   }, [sessionToken, router]);
 
+  // Timer should start when AI's first question is displayed
+  // We check if there are any messages for the current topic (AI question exists)
+  const hasAiQuestion = messages.length > 0 && messages.some(m => m.role === 'ai');
+  const isTopicEffectivelyStarted = currentTopic?.started || hasAiQuestion;
+
   const {
     timeLeft,
     setTimeLeft,
@@ -77,7 +82,7 @@ export default function InterviewPage() {
   } = useInterviewTimer({
     totalTime,
     onTimeUp: handleTimeUp,
-    isTopicStarted: currentTopic?.started ?? false,
+    isTopicStarted: isTopicEffectivelyStarted,
   });
 
   // Build context for STT (Speech-to-Text) - provides AI with conversation history
