@@ -426,6 +426,23 @@ export default function SessionDetailPage() {
                     {urlCopySuccess ? 'URL Copied!' : 'Copy Join URL'}
                   </Button>
                 </div>
+
+                {/* QR Code Preview */}
+                <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col items-center">
+                  <button
+                    onClick={() => router.push(`/teacher/sessions/${sessionId}/qr`)}
+                    className="group cursor-pointer transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 rounded-lg"
+                  >
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(
+                        `${process.env.NEXT_PUBLIC_FRONTEND_URL || window.location.origin}/join/${session.accessCode}`
+                      )}`}
+                      alt="QR Code"
+                      className="w-20 h-20 rounded-lg border-2 border-gray-200 group-hover:border-blue-400 transition-colors"
+                    />
+                  </button>
+                  <p className="text-xs text-gray-400 mt-2">Click to enlarge</p>
+                </div>
               </div>
             )}
 
@@ -460,7 +477,7 @@ export default function SessionDetailPage() {
                   <h2 className="text-lg font-semibold text-gray-900">Participants</h2>
 
                   {/* Filter */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1">
                     {(['all', 'completed', 'interview_in_progress', 'registered'] as FilterStatus[]).map(
                       (status) => (
                         <button
@@ -552,7 +569,7 @@ export default function SessionDetailPage() {
                   />
                 ) : (
                   <div className="h-full flex items-center justify-center text-gray-500">
-                    참가자 정보를 불러올 수 없습니다.
+                    Failed to load participant information
                   </div>
                 )}
               </div>

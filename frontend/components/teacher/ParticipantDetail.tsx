@@ -87,7 +87,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '파일 다운로드에 실패했습니다');
+        throw new Error(errorData.error || 'Failed to download file');
       }
 
       const blob = await response.blob();
@@ -101,7 +101,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download error:', error);
-      alert(error instanceof Error ? error.message : '파일 다운로드에 실패했습니다');
+      alert(error instanceof Error ? error.message : 'Failed to download file');
     } finally {
       setIsDownloading(false);
     }
@@ -111,11 +111,11 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
-        <h2 className="text-lg font-semibold">참가자 상세</h2>
+        <h2 className="text-lg font-semibold">Participant Details</h2>
         <button
           onClick={onClose}
           className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-          aria-label="닫기"
+          aria-label="Close"
         >
           <X className="w-5 h-5 text-gray-500" />
         </button>
@@ -126,33 +126,33 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
         {/* Basic Info Section */}
         <section>
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            기본 정보
+            Basic Information
           </h3>
           <div className="bg-gray-50 rounded-lg p-4 space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">이름</span>
+              <span className="text-gray-600">Name</span>
               <span className="font-medium">{participant.studentName}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">학번</span>
+              <span className="text-gray-600">Student ID</span>
               <span className="font-medium">{participant.studentId || '-'}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">상태</span>
+              <span className="text-gray-600">Status</span>
               <StatusBadge status={participant.status as BadgeStatus} size="sm" />
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">인터뷰 모드</span>
+              <span className="text-gray-600">Interview Mode</span>
               <span className="flex items-center gap-1 font-medium">
                 {participant.chosenInterviewMode === 'voice' ? (
                   <>
                     <Mic className="w-4 h-4 text-purple-500" />
-                    음성
+                    Voice
                   </>
                 ) : participant.chosenInterviewMode === 'chat' ? (
                   <>
                     <MessageSquare className="w-4 h-4 text-blue-500" />
-                    채팅
+                    Chat
                   </>
                 ) : (
                   '-'
@@ -167,13 +167,13 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
           <section>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                분석된 주제 ({participant.analyzedTopics.length}개)
+                Analyzed Topics ({participant.analyzedTopics.length})
               </h3>
               <button
                 onClick={toggleAllTopics}
                 className="text-xs text-blue-600 hover:text-blue-700"
               >
-                {expandedTopics.length === participant.analyzedTopics.length ? '모두 접기' : '모두 펼치기'}
+                {expandedTopics.length === participant.analyzedTopics.length ? 'Collapse All' : 'Expand All'}
               </button>
             </div>
             <div className="space-y-2">
@@ -215,7 +215,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
         {participant.submittedFileName && (
           <section>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              제출 파일
+              Submitted File
             </h3>
             <div className="bg-gray-50 rounded-lg p-4">
               <div className="flex items-center justify-between">
@@ -229,7 +229,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
                 className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
               >
                 <Download className="w-4 h-4" />
-                {isDownloading ? '다운로드 중...' : '다운로드'}
+                {isDownloading ? 'Downloading...' : 'Download'}
               </button>
               </div>
             </div>
@@ -240,12 +240,12 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
         {showSummary && participant.summary && (
           <section>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              AI 평가 요약
+              AI Evaluation Summary
             </h3>
             <div className="bg-gray-50 rounded-lg p-4 space-y-4">
               {/* Score */}
               <div className="flex items-center gap-3">
-                <span className="text-gray-600">점수</span>
+                <span className="text-gray-600">Score</span>
                 <div className="flex items-center gap-2">
                   <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
@@ -268,7 +268,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
               {/* Strengths */}
               {participant.summary.strengths.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-green-700 mb-2">강점</h4>
+                  <h4 className="font-medium text-green-700 mb-2">Strengths</h4>
                   <ul className="space-y-1">
                     {participant.summary.strengths.map((s, i) => (
                       <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
@@ -283,7 +283,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
               {/* Weaknesses */}
               {participant.summary.weaknesses.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-orange-700 mb-2">개선점</h4>
+                  <h4 className="font-medium text-orange-700 mb-2">Areas for Improvement</h4>
                   <ul className="space-y-1">
                     {participant.summary.weaknesses.map((w, i) => (
                       <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
@@ -298,7 +298,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
               {/* Overall Comment */}
               {participant.summary.overallComment && (
                 <div>
-                  <h4 className="font-medium text-gray-700 mb-2">종합 코멘트</h4>
+                  <h4 className="font-medium text-gray-700 mb-2">Overall Comment</h4>
                   <p className="text-sm text-gray-600 bg-white p-3 rounded-lg border border-gray-200">
                     {participant.summary.overallComment}
                   </p>
@@ -311,7 +311,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
         {/* Conversation History Section */}
         <section>
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            대화 기록
+            Conversation History
           </h3>
           {participant.conversations.length > 0 ? (
             <ConversationView
@@ -320,7 +320,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
             />
           ) : (
             <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
-              대화 기록이 없습니다.
+              No conversation history
             </div>
           )}
         </section>

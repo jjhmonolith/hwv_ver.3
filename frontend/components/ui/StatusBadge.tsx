@@ -47,19 +47,19 @@ const statusConfig: Record<
 > = {
   // Session statuses
   draft: {
-    label: '준비중',
+    label: 'Draft',
     bgColor: 'bg-gray-100',
     textColor: 'text-gray-700',
     icon: Circle,
   },
   active: {
-    label: '진행중',
+    label: 'Active',
     bgColor: 'bg-green-100',
     textColor: 'text-green-700',
     icon: PlayCircle,
   },
   closed: {
-    label: '종료됨',
+    label: 'Closed',
     bgColor: 'bg-gray-100',
     textColor: 'text-gray-500',
     icon: CheckCircle2,
@@ -67,43 +67,43 @@ const statusConfig: Record<
 
   // Participant statuses
   registered: {
-    label: '등록됨',
+    label: 'Registered',
     bgColor: 'bg-blue-100',
     textColor: 'text-blue-700',
     icon: Circle,
   },
   file_submitted: {
-    label: '파일 제출',
+    label: 'File Submitted',
     bgColor: 'bg-purple-100',
     textColor: 'text-purple-700',
     icon: FileText,
   },
   interview_in_progress: {
-    label: '인터뷰 중',
+    label: 'In Progress',
     bgColor: 'bg-green-100',
     textColor: 'text-green-700',
     icon: PlayCircle,
   },
   interview_paused: {
-    label: '일시정지',
+    label: 'Paused',
     bgColor: 'bg-yellow-100',
     textColor: 'text-yellow-700',
     icon: PauseCircle,
   },
   completed: {
-    label: '완료',
+    label: 'Completed',
     bgColor: 'bg-emerald-100',
     textColor: 'text-emerald-700',
     icon: CheckCircle2,
   },
   timeout: {
-    label: '시간초과',
+    label: 'Timeout',
     bgColor: 'bg-orange-100',
     textColor: 'text-orange-700',
     icon: Clock,
   },
   abandoned: {
-    label: '이탈',
+    label: 'Abandoned',
     bgColor: 'bg-red-100',
     textColor: 'text-red-700',
     icon: XCircle,
