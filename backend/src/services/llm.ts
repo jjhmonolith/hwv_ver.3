@@ -1,9 +1,20 @@
 import OpenAI from 'openai';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialization to ensure env vars are loaded
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error('OPENAI_API_KEY is not set in environment variables');
+      throw new Error('OpenAI API key not configured');
+    }
+    openaiClient = new OpenAI({ apiKey });
+    console.log('OpenAI client initialized successfully');
+  }
+  return openaiClient;
+}
 
 // Reasoning effort type matching OpenAI SDK (supports GPT-5.x models)
 // - 'none': No reasoning (default for gpt-5.1+, lowest latency)
@@ -70,8 +81,10 @@ Respond in JSON format:
 }`;
 
   try {
-    // Using Responses API with gpt-5.2
-    const response = await openai.responses.create({
+    const client = getOpenAIClient();
+    console.log(`[analyzeTopics] Using model: ${model}, reasoning: ${reasoningEffort}`);
+
+    const response = await client.responses.create({
       model,
       instructions,
       input: `다음 과제 텍스트를 분석하고 ${topicCount}개의 주요 주제를 추출해주세요:\n\n${extractedText.slice(0, 15000)}`,
@@ -84,18 +97,24 @@ Respond in JSON format:
       throw new Error('Empty response from LLM');
     }
 
+    console.log(`[analyzeTopics] Successfully received response`);
     const parsed = JSON.parse(content);
     const topics: Topic[] = parsed.topics || [];
 
-    // Ensure proper indexing
     return topics.map((topic, idx) => ({
       index: idx,
       title: topic.title,
       description: topic.description,
     }));
-  } catch (error) {
-    console.error('Error analyzing topics:', error);
-    throw new Error('Failed to analyze topics from document');
+  } catch (error: unknown) {
+    const err = error as Error & { status?: number; code?: string };
+    console.error('[analyzeTopics] Error:', {
+      message: err.message,
+      status: err.status,
+      code: err.code,
+      stack: err.stack,
+    });
+    throw new Error(`Failed to analyze topics: ${err.message}`);
   }
 }
 
@@ -131,8 +150,9 @@ Guidelines:
     : `과제 내용:\n${context.assignmentText.slice(0, 5000)}\n\n이 주제에 대한 첫 번째 질문을 생성해주세요.`;
 
   try {
-    // Using Responses API with gpt-5.2
-    const response = await openai.responses.create({
+    const client = getOpenAIClient();
+
+    const response = await client.responses.create({
       model,
       instructions,
       input,
@@ -146,8 +166,9 @@ Guidelines:
     }
 
     return content.trim();
-  } catch (error) {
-    console.error('Error generating question:', error);
+  } catch (error: unknown) {
+    const err = error as Error & { status?: number; code?: string };
+    console.error('[generateQuestion] Error:', err.message);
     throw new Error('Failed to generate interview question');
   }
 }
@@ -198,8 +219,9 @@ Respond in JSON format:
 }`;
 
   try {
-    // Using Responses API with gpt-5.2
-    const response = await openai.responses.create({
+    const client = getOpenAIClient();
+
+    const response = await client.responses.create({
       model,
       instructions,
       input: `과제 내용 (일부):\n${assignmentText.slice(0, 5000)}\n\n인터뷰 기록:\n${conversationSummary}`,
@@ -213,8 +235,9 @@ Respond in JSON format:
     }
 
     return JSON.parse(content);
-  } catch (error) {
-    console.error('Error evaluating interview:', error);
+  } catch (error: unknown) {
+    const err = error as Error & { status?: number; code?: string };
+    console.error('[evaluateInterview] Error:', err.message);
     throw new Error('Failed to evaluate interview');
   }
 }
