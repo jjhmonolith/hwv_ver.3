@@ -73,6 +73,9 @@ export default function InterviewPage() {
   const hasAiQuestion = messages.length > 0 && messages.some(m => m.role === 'ai');
   const isTopicEffectivelyStarted = currentTopic?.started || hasAiQuestion;
 
+  // Server-calculated remaining time (for reconnection/refresh)
+  const serverTimeLeft = currentTopic?.timeLeft;
+
   const {
     timeLeft,
     setTimeLeft,
@@ -81,6 +84,7 @@ export default function InterviewPage() {
     isPaused,
   } = useInterviewTimer({
     totalTime,
+    initialTimeLeft: serverTimeLeft,
     onTimeUp: handleTimeUp,
     isTopicStarted: isTopicEffectivelyStarted,
   });
@@ -130,8 +134,9 @@ export default function InterviewPage() {
   useHeartbeat({
     sessionToken,
     onTimeSync: (remainingTime) => {
-      // Only sync if server time is less (catching up after disconnect)
-      if (remainingTime < timeLeft) {
+      // Sync if time difference is more than 2 seconds (to handle network delays)
+      const timeDiff = Math.abs(timeLeft - remainingTime);
+      if (timeDiff > 2) {
         setTimeLeft(remainingTime);
       }
     },

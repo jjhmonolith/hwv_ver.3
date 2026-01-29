@@ -356,6 +356,19 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
       [req.participant.id]
     );
 
+    // Calculate accurate timeLeft based on topic_started_at
+    const topicsState = data.topics_state || [];
+    const currentTopicIndex = data.current_topic_index || 0;
+    const currentTopic = topicsState[currentTopicIndex];
+
+    if (data.topic_started_at && data.current_phase === 'topic_active' && currentTopic) {
+      const elapsedSeconds = Math.floor(
+        (Date.now() - new Date(data.topic_started_at).getTime()) / 1000
+      );
+      const calculatedTimeLeft = Math.max(0, (currentTopic.totalTime || 180) - elapsedSeconds);
+      topicsState[currentTopicIndex].timeLeft = calculatedTimeLeft;
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -364,7 +377,7 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
         chosenInterviewMode: data.chosen_interview_mode,
         currentTopicIndex: data.current_topic_index,
         currentPhase: data.current_phase,
-        topicsState: data.topics_state,
+        topicsState: topicsState,
         topicStartedAt: data.topic_started_at,
         conversations: conversationsResult.rows.reverse(),
       },

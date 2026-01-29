@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface UseInterviewTimerProps {
   totalTime: number;
+  /** Server-calculated remaining time (for reconnection/refresh) */
+  initialTimeLeft?: number;
   onTimeUp: () => void;
   isTopicStarted: boolean;
   /** Voice mode: AI is speaking (TTS playing) */
@@ -31,25 +33,42 @@ interface UseInterviewTimerReturn {
  */
 export function useInterviewTimer({
   totalTime,
+  initialTimeLeft,
   onTimeUp,
   isTopicStarted,
   isSpeaking = false,
   isTranscribing = false,
 }: UseInterviewTimerProps): UseInterviewTimerReturn {
-  const [timeLeft, setTimeLeft] = useState(totalTime);
+  // Use server-calculated time if available, otherwise use totalTime
+  const [timeLeft, setTimeLeft] = useState(initialTimeLeft ?? totalTime);
   const [isTyping, setIsTyping] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const onTimeUpRef = useRef(onTimeUp);
+  // Track current topic's totalTime to detect topic changes
+  const prevTotalTimeRef = useRef(totalTime);
 
   // Keep onTimeUp ref updated
   useEffect(() => {
     onTimeUpRef.current = onTimeUp;
   }, [onTimeUp]);
 
-  // Reset timer when totalTime changes (new topic)
+  // Sync with server time when initialTimeLeft changes (reconnection/refresh)
   useEffect(() => {
-    setTimeLeft(totalTime);
-  }, [totalTime]);
+    if (initialTimeLeft !== undefined) {
+      setTimeLeft(initialTimeLeft);
+    }
+  }, [initialTimeLeft]);
+
+  // Reset timer only when switching to a NEW topic (totalTime changes to a different value)
+  useEffect(() => {
+    if (totalTime !== prevTotalTimeRef.current) {
+      // Topic changed - reset to full time (initialTimeLeft will be undefined for new topics)
+      if (initialTimeLeft === undefined) {
+        setTimeLeft(totalTime);
+      }
+      prevTotalTimeRef.current = totalTime;
+    }
+  }, [totalTime, initialTimeLeft]);
 
   // Timer logic:
   // Timer runs when topic is started AND AI is not generating/speaking/transcribing
