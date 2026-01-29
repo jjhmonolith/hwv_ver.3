@@ -5,16 +5,20 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Reasoning effort type for Responses API (matches OpenAI SDK)
-type ReasoningEffort = 'low' | 'medium' | 'high';
+// Reasoning effort type matching OpenAI SDK (supports GPT-5.x models)
+// - 'none': No reasoning (default for gpt-5.1+, lowest latency)
+// - 'minimal', 'low', 'medium', 'high': Increasing reasoning depth
+// - 'xhigh': Maximum reasoning (supported for gpt-5.1-codex-max+)
+type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+const VALID_EFFORTS: readonly string[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
 function getReasoningEffort(): ReasoningEffort {
   const effort = process.env.OPENAI_REASONING_EFFORT || 'medium';
-  // Validate and normalize effort value
-  if (effort === 'low' || effort === 'medium' || effort === 'high') {
-    return effort;
+  if (VALID_EFFORTS.includes(effort)) {
+    return effort as ReasoningEffort;
   }
-  return 'medium'; // default fallback
+  return 'medium';
 }
 
 // Topic interface
