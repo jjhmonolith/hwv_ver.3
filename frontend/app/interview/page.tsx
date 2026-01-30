@@ -385,7 +385,8 @@ export default function InterviewPage() {
   // Handle answer submission
   const handleSubmitAnswer = async (answer: string) => {
     // ref로 즉시 체크하여 빠른 연속 클릭 방지
-    if (!sessionToken || isSubmittingRef.current) return;
+    // aiGenerating도 체크하여 AI 생성 중 중복 제출 방지
+    if (!sessionToken || isSubmittingRef.current || aiGenerating) return;
 
     // ref와 state 모두 업데이트
     isSubmittingRef.current = true;
@@ -416,6 +417,23 @@ export default function InterviewPage() {
       }
     } catch (err) {
       console.error('Failed to submit answer:', err);
+
+      // Check if it's a 409 error (AI generation already in progress)
+      const isAiGenerationInProgress =
+        err instanceof Error &&
+        'status' in err &&
+        (err as { status: number }).status === 409;
+
+      if (isAiGenerationInProgress) {
+        // AI is already generating - keep polling state active
+        console.log('[INTERVIEW] AI generation already in progress, continuing to poll');
+        // Don't reset aiGenerating - let polling continue
+        // Remove the student message we just added since it's a duplicate
+        // Keep isSubmittingRef true to prevent further submissions
+        return;
+      }
+
+      // Other errors - reset state and show error
       setError('답변 제출에 실패했습니다. 다시 시도해주세요.');
       isSubmittingRef.current = false;
       setAiGenerating(false);
