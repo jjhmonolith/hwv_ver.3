@@ -38,6 +38,7 @@ export default function InterviewPage() {
   // Local state
   const [isLoading, setIsLoading] = useState(true);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [pollEnabled, setPollEnabled] = useState(false); // 폴링 활성화 (submitAnswer 완료 후에만)
   const [error, setError] = useState<string | null>(null);
   // 빠른 연속 클릭 방지 (React 상태는 비동기라 즉시 반영 안됨)
   const isSubmittingRef = useRef(false);
@@ -259,6 +260,7 @@ export default function InterviewPage() {
         if (state.aiGenerationPending) {
           console.log('[INTERVIEW] AI generation pending detected, restoring state');
           setAiGenerating(true);
+          setPollEnabled(true); // 새로고침 시에는 서버에서 이미 pending=true이므로 바로 폴링 시작
           setTimerAiGenerating(true);
         }
 
@@ -364,19 +366,22 @@ export default function InterviewPage() {
     // Reset submitting state
     isSubmittingRef.current = false;
     setAiGenerating(false);
+    setPollEnabled(false); // 폴링 중지
     setTimerAiGenerating(false);
   }, [addMessage, isVoiceMode, speak, interviewState, currentTopic, topicsState, currentTopicIndex, setInterviewState, setTimerAiGenerating]);
 
-  // AI generation polling hook - polls for completion when aiGenerating is true
+  // AI generation polling hook - polls for completion when pollEnabled is true
+  // pollEnabled is set to true only AFTER submitAnswer response confirms AI generation started
   useAIGenerationPolling({
     sessionToken,
-    isGenerating: aiGenerating,
+    isGenerating: pollEnabled, // 폴링은 pollEnabled가 true일 때만 시작
     onComplete: handleAIQuestionReceived,
     onError: (err) => {
       console.error('AI generation polling error:', err);
       setError('AI 질문 생성에 실패했습니다. 다시 시도해주세요.');
       isSubmittingRef.current = false;
       setAiGenerating(false);
+      setPollEnabled(false);
       setTimerAiGenerating(false);
     },
     pollInterval: 1000,
@@ -407,6 +412,8 @@ export default function InterviewPage() {
       // New async flow: If aiGenerationPending is true, polling hook will handle completion
       if (response.aiGenerationPending) {
         console.log('[INTERVIEW] AI generation started in background, polling for completion');
+        // Enable polling NOW - after server confirmed AI generation started
+        setPollEnabled(true);
         // Keep aiGenerating=true, polling hook will call handleAIQuestionReceived when done
         return;
       }
