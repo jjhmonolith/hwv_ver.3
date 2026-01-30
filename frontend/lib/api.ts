@@ -250,7 +250,16 @@ export const api = {
         headers: { 'X-Session-Token': sessionToken },
       }),
     getState: (sessionToken: string) =>
-      request<{ status: string; analyzedTopics: unknown[]; currentTopicIndex: number; currentPhase: string; topicsState: unknown[] }>('/api/interview/state', {
+      request<{
+        status: string;
+        analyzedTopics: unknown[];
+        currentTopicIndex: number;
+        currentPhase: string;
+        topicsState: unknown[];
+        conversations?: unknown[];
+        aiGenerationPending?: boolean;
+        aiGenerationStartedAt?: string;
+      }>('/api/interview/state', {
         headers: { 'X-Session-Token': sessionToken },
       }),
     heartbeat: (sessionToken: string) =>
@@ -259,9 +268,23 @@ export const api = {
         headers: { 'X-Session-Token': sessionToken },
       }),
     submitAnswer: (sessionToken: string, answer: string) =>
-      request<{ nextQuestion: string; turnIndex: number }>('/api/interview/answer', {
+      request<{
+        message: string;
+        nextQuestion?: string;
+        turnIndex: number;
+        aiGenerationPending?: boolean;
+      }>('/api/interview/answer', {
         method: 'POST',
         body: { answer },
+        headers: { 'X-Session-Token': sessionToken },
+      }),
+    getAIStatus: (sessionToken: string) =>
+      request<{
+        aiGenerationPending: boolean;
+        nextQuestion?: string;
+        turnIndex?: number;
+        generationTimeSeconds?: number;
+      }>('/api/interview/ai-status', {
         headers: { 'X-Session-Token': sessionToken },
       }),
     nextTopic: (sessionToken: string) =>

@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { useInterviewTimer } from '@/hooks/useInterviewTimer';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { useSpeech } from '@/hooks/useSpeech';
+import { useAIGenerationPolling } from '@/hooks/useAIGenerationPolling';
 import { MessageBubble } from '@/components/interview/MessageBubble';
 import { Timer } from '@/components/interview/Timer';
 import { TopicProgress } from '@/components/interview/TopicProgress';
@@ -130,7 +131,7 @@ export default function InterviewPage() {
     startListeningRef.current = startListening;
   }, [startListening]);
 
-  // Heartbeat hook
+  // Heartbeat hook - now always enabled as server accounts for pause time
   useHeartbeat({
     sessionToken,
     onTimeSync: (remainingTime) => {
@@ -143,7 +144,7 @@ export default function InterviewPage() {
     onTopicExpired: () => {
       router.push('/interview/transition');
     },
-    enabled: !aiGenerating && !!sessionToken,
+    enabled: !!sessionToken, // Always enabled - server now correctly calculates pause time
   });
 
   // Scroll to bottom when messages change
@@ -240,6 +241,7 @@ export default function InterviewPage() {
             content: string;
             created_at: string;
           }>;
+          aiGenerationPending?: boolean;
         };
 
         // Check status and redirect if needed
@@ -251,6 +253,13 @@ export default function InterviewPage() {
         if (state.currentPhase === 'topic_transition') {
           router.push('/interview/transition');
           return;
+        }
+
+        // If AI generation is pending (e.g., refreshed during AI generation), restore that state
+        if (state.aiGenerationPending) {
+          console.log('[INTERVIEW] AI generation pending detected, restoring state');
+          setAiGenerating(true);
+          setTimerAiGenerating(true);
         }
 
         // Update interview state
@@ -315,7 +324,63 @@ export default function InterviewPage() {
     };
 
     initializeInterview();
-  }, [sessionToken, router, setInterviewState, setMessages, isVoiceMode]);
+  }, [sessionToken, router, setInterviewState, setMessages, setTimerAiGenerating, isVoiceMode]);
+
+  // Handle AI question received (from polling or direct response)
+  const handleAIQuestionReceived = useCallback(async (question: string) => {
+    // Add AI message
+    const aiMessage: Message = {
+      role: 'ai',
+      content: question,
+      timestamp: new Date().toISOString(),
+    };
+    addMessage(aiMessage);
+
+    // Voice mode: Play TTS for AI question
+    if (isVoiceMode && question) {
+      setCurrentQuestion(question);
+      setTtsFailed(false);
+      try {
+        await speak(question);
+        // Note: startListening will be called in handleTTSEnd callback
+      } catch {
+        // TTS failed - handleTTSError will set ttsFailed=true
+        console.error('TTS playback failed, will show manual start');
+      }
+    }
+
+    // Mark topic as started if not already
+    if (interviewState && !currentTopic?.started) {
+      const updatedTopicsState = [...topicsState];
+      if (updatedTopicsState[currentTopicIndex]) {
+        updatedTopicsState[currentTopicIndex].started = true;
+      }
+      setInterviewState({
+        ...interviewState,
+        topicsState: updatedTopicsState,
+      });
+    }
+
+    // Reset submitting state
+    isSubmittingRef.current = false;
+    setAiGenerating(false);
+    setTimerAiGenerating(false);
+  }, [addMessage, isVoiceMode, speak, interviewState, currentTopic, topicsState, currentTopicIndex, setInterviewState, setTimerAiGenerating]);
+
+  // AI generation polling hook - polls for completion when aiGenerating is true
+  useAIGenerationPolling({
+    sessionToken,
+    isGenerating: aiGenerating,
+    onComplete: handleAIQuestionReceived,
+    onError: (err) => {
+      console.error('AI generation polling error:', err);
+      setError('AI 질문 생성에 실패했습니다. 다시 시도해주세요.');
+      isSubmittingRef.current = false;
+      setAiGenerating(false);
+      setTimerAiGenerating(false);
+    },
+    pollInterval: 1000,
+  });
 
   // Handle answer submission
   const handleSubmitAnswer = async (answer: string) => {
@@ -336,47 +401,22 @@ export default function InterviewPage() {
     addMessage(studentMessage);
 
     try {
-      const response = await api.interview.submitAnswer(sessionToken, answer) as {
-        nextQuestion: string;
-        turnIndex: number;
-      };
+      const response = await api.interview.submitAnswer(sessionToken, answer);
 
-      // Add AI message
-      const aiMessage: Message = {
-        role: 'ai',
-        content: response.nextQuestion,
-        timestamp: new Date().toISOString(),
-      };
-      addMessage(aiMessage);
-
-      // Voice mode: Play TTS for AI question
-      if (isVoiceMode && response.nextQuestion) {
-        setCurrentQuestion(response.nextQuestion);
-        setTtsFailed(false);
-        try {
-          await speak(response.nextQuestion);
-          // Note: startListening will be called in handleTTSEnd callback
-        } catch {
-          // TTS failed - handleTTSError will set ttsFailed=true
-          console.error('TTS playback failed, will show manual start');
-        }
+      // New async flow: If aiGenerationPending is true, polling hook will handle completion
+      if (response.aiGenerationPending) {
+        console.log('[INTERVIEW] AI generation started in background, polling for completion');
+        // Keep aiGenerating=true, polling hook will call handleAIQuestionReceived when done
+        return;
       }
 
-      // Mark topic as started if not already
-      if (interviewState && !currentTopic?.started) {
-        const updatedTopicsState = [...topicsState];
-        if (updatedTopicsState[currentTopicIndex]) {
-          updatedTopicsState[currentTopicIndex].started = true;
-        }
-        setInterviewState({
-          ...interviewState,
-          topicsState: updatedTopicsState,
-        });
+      // Legacy path: Immediate response (shouldn't happen with new backend)
+      if (response.nextQuestion) {
+        await handleAIQuestionReceived(response.nextQuestion);
       }
     } catch (err) {
       console.error('Failed to submit answer:', err);
       setError('답변 제출에 실패했습니다. 다시 시도해주세요.');
-    } finally {
       isSubmittingRef.current = false;
       setAiGenerating(false);
       setTimerAiGenerating(false);

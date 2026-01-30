@@ -152,11 +152,36 @@ CREATE TABLE interview_states (
     -- Time tracking
     topic_started_at TIMESTAMP WITH TIME ZONE,
 
+    -- AI generation tracking (for background processing)
+    ai_generation_pending BOOLEAN DEFAULT FALSE,
+    ai_generation_started_at TIMESTAMP WITH TIME ZONE,
+    accumulated_pause_time INTEGER DEFAULT 0,  -- Total pause time in seconds
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX idx_interview_states_phase ON interview_states(current_phase);
+CREATE INDEX idx_interview_states_ai_pending ON interview_states(ai_generation_pending) WHERE ai_generation_pending = TRUE;
+
+-- AI generation jobs table (background processing queue)
+CREATE TABLE ai_generation_jobs (
+    id SERIAL PRIMARY KEY,
+    participant_id UUID NOT NULL REFERENCES student_participants(id) ON DELETE CASCADE,
+    topic_index INTEGER NOT NULL,
+    turn_index INTEGER NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, processing, completed, failed
+    student_answer TEXT NOT NULL,
+    generated_question TEXT,
+    error_message TEXT,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    UNIQUE(participant_id, topic_index, turn_index)
+);
+
+CREATE INDEX idx_ai_jobs_participant ON ai_generation_jobs(participant_id);
+CREATE INDEX idx_ai_jobs_status ON ai_generation_jobs(status);
+CREATE INDEX idx_ai_jobs_pending ON ai_generation_jobs(status) WHERE status = 'pending';
 
 -- Interview conversations table
 CREATE TABLE interview_conversations (

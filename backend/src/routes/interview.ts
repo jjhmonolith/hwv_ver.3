@@ -8,6 +8,144 @@ import { uploadFile, isStorageConfigured } from '../services/storage.js';
 
 const router = Router();
 
+// Type for evaluation summary
+interface EvaluationSummary {
+  score: number;
+  strengths: string[];
+  weaknesses: string[];
+  overallComment: string;
+}
+
+/**
+ * Run evaluation for a participant (background auto-evaluation)
+ * This function is called asynchronously when the last topic ends
+ */
+async function runEvaluation(participantId: string): Promise<EvaluationSummary | null> {
+  try {
+    // Check if already evaluated (avoid duplicate evaluation)
+    const checkResult = await query(
+      `SELECT summary FROM student_participants WHERE id = $1`,
+      [participantId]
+    );
+
+    if (checkResult.rows.length === 0) {
+      console.error(`[runEvaluation] Participant not found: ${participantId}`);
+      return null;
+    }
+
+    if (checkResult.rows[0].summary) {
+      console.log(`[runEvaluation] Already evaluated: ${participantId}`);
+      return checkResult.rows[0].summary;
+    }
+
+    // Get all data for evaluation
+    const dataResult = await query(
+      `SELECT
+        sp.extracted_text, sp.analyzed_topics,
+        ist.topics_state
+       FROM student_participants sp
+       LEFT JOIN interview_states ist ON sp.id = ist.participant_id
+       WHERE sp.id = $1`,
+      [participantId]
+    );
+
+    if (dataResult.rows.length === 0) {
+      console.error(`[runEvaluation] Participant data not found: ${participantId}`);
+      return null;
+    }
+
+    const data = dataResult.rows[0];
+    const analyzedTopics = typeof data.analyzed_topics === 'string'
+      ? JSON.parse(data.analyzed_topics)
+      : data.analyzed_topics;
+
+    // Get all conversations grouped by topic
+    const conversationsResult = await query(
+      `SELECT topic_index, turn_index, role, content
+       FROM interview_conversations
+       WHERE participant_id = $1
+       ORDER BY topic_index ASC, turn_index ASC`,
+      [participantId]
+    );
+
+    // Group conversations by topic
+    const conversationsForEval: Array<{
+      topicIndex: number;
+      topicTitle: string;
+      messages: Array<{ role: 'ai' | 'student'; content: string }>;
+    }> = [];
+
+    const allConversations = conversationsResult.rows as Array<{
+      topic_index: number;
+      turn_index: number;
+      role: string;
+      content: string;
+    }>;
+
+    for (let i = 0; i < analyzedTopics.length; i++) {
+      const topicConversations = allConversations
+        .filter((c) => c.topic_index === i)
+        .map((c) => ({
+          role: c.role as 'ai' | 'student',
+          content: c.content,
+        }));
+
+      conversationsForEval.push({
+        topicIndex: i,
+        topicTitle: analyzedTopics[i].title,
+        messages: topicConversations,
+      });
+    }
+
+    // Generate evaluation summary
+    let summary: EvaluationSummary;
+    try {
+      summary = await evaluateInterview(
+        data.extracted_text,
+        conversationsForEval
+      );
+    } catch (error) {
+      console.error('[runEvaluation] Failed to evaluate interview:', error);
+      summary = {
+        score: 70,
+        strengths: ['인터뷰에 참여했습니다.'],
+        weaknesses: ['평가를 완료하지 못했습니다.'],
+        overallComment: '인터뷰가 완료되었습니다. 세부 평가는 교사에게 문의하세요.',
+      };
+    }
+
+    // Update topics state to all done
+    const topicsState = data.topics_state || [];
+    for (const topic of topicsState) {
+      topic.status = 'done';
+    }
+
+    // Update participant status and save summary
+    await query(
+      `UPDATE student_participants
+       SET status = 'completed',
+           interview_ended_at = NOW(),
+           summary = $1
+       WHERE id = $2`,
+      [JSON.stringify(summary), participantId]
+    );
+
+    // Update interview state
+    await query(
+      `UPDATE interview_states
+       SET current_phase = 'completed', topics_state = $1
+       WHERE participant_id = $2`,
+      [JSON.stringify(topicsState), participantId]
+    );
+
+    console.log(`[runEvaluation] Evaluation completed for: ${participantId}`);
+    return summary;
+  } catch (error) {
+    console.error('[runEvaluation] Error:', error);
+    return null;
+  }
+}
+
 /**
  * Fix filename encoding issue from Multer
  * Multer decodes multipart filename as latin1, but browsers encode as UTF-8
@@ -320,7 +458,7 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * GET /api/interview/state
- * Get current interview state
+ * Get current interview state (includes AI generation status)
  */
 router.get('/state', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -332,7 +470,8 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
     const result = await query(
       `SELECT
         sp.status, sp.analyzed_topics, sp.chosen_interview_mode,
-        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at
+        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at,
+        ist.ai_generation_pending, ist.ai_generation_started_at, ist.accumulated_pause_time
        FROM student_participants sp
        LEFT JOIN interview_states ist ON sp.id = ist.participant_id
        WHERE sp.id = $1`,
@@ -348,6 +487,8 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
     }
 
     const data = result.rows[0];
+    const aiGenerationPending = data.ai_generation_pending || false;
+    const accumulatedPauseTime = data.accumulated_pause_time || 0;
 
     // Get recent conversations
     const conversationsResult = await query(
@@ -359,16 +500,26 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
       [req.participant.id]
     );
 
-    // Calculate accurate timeLeft based on topic_started_at
+    // Calculate accurate timeLeft based on topic_started_at, minus pause time
     const topicsState = data.topics_state || [];
     const currentTopicIndex = data.current_topic_index || 0;
     const currentTopic = topicsState[currentTopicIndex];
 
     if (data.topic_started_at && data.current_phase === 'topic_active' && currentTopic) {
+      // Calculate current pause time if AI is generating
+      let currentPauseTime = 0;
+      if (aiGenerationPending && data.ai_generation_started_at) {
+        currentPauseTime = Math.floor(
+          (Date.now() - new Date(data.ai_generation_started_at).getTime()) / 1000
+        );
+      }
+
+      const totalPauseTime = accumulatedPauseTime + currentPauseTime;
       const elapsedSeconds = Math.floor(
         (Date.now() - new Date(data.topic_started_at).getTime()) / 1000
       );
-      const calculatedTimeLeft = Math.max(0, (currentTopic.totalTime || 180) - elapsedSeconds);
+      const effectiveElapsed = Math.max(0, elapsedSeconds - totalPauseTime);
+      const calculatedTimeLeft = Math.max(0, (currentTopic.totalTime || 180) - effectiveElapsed);
       topicsState[currentTopicIndex].timeLeft = calculatedTimeLeft;
     }
 
@@ -383,6 +534,8 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
         topicsState: topicsState,
         topicStartedAt: data.topic_started_at,
         conversations: conversationsResult.rows.reverse(),
+        aiGenerationPending,
+        aiGenerationStartedAt: data.ai_generation_started_at,
       },
     });
   } catch (error) {
@@ -394,6 +547,7 @@ router.get('/state', async (req: Request, res: Response): Promise<void> => {
 /**
  * POST /api/interview/heartbeat
  * Keep connection alive and sync server time
+ * Now accounts for accumulated pause time (AI generation pauses)
  */
 router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -408,11 +562,12 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
       [req.participant.id]
     );
 
-    // Get current interview state
+    // Get current interview state with AI generation tracking fields
     const result = await query(
       `SELECT
         sp.status,
-        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at
+        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at,
+        ist.ai_generation_pending, ist.ai_generation_started_at, ist.accumulated_pause_time
        FROM student_participants sp
        LEFT JOIN interview_states ist ON sp.id = ist.participant_id
        WHERE sp.id = $1`,
@@ -428,16 +583,29 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
     const topicsState = data.topics_state || [];
     const currentTopicIndex = data.current_topic_index || 0;
     const currentTopic = topicsState[currentTopicIndex];
+    const accumulatedPauseTime = data.accumulated_pause_time || 0;
+    const aiGenerationPending = data.ai_generation_pending || false;
 
-    // Calculate remaining time based on server time
+    // Calculate remaining time based on server time, minus accumulated pause time
     let remainingTime = currentTopic?.timeLeft || 0;
     let timeExpired = false;
+    let currentPauseTime = 0;
 
     if (data.topic_started_at && data.current_phase === 'topic_active') {
+      // Calculate current pause time if AI is generating
+      if (aiGenerationPending && data.ai_generation_started_at) {
+        currentPauseTime = Math.floor(
+          (Date.now() - new Date(data.ai_generation_started_at).getTime()) / 1000
+        );
+      }
+
+      const totalPauseTime = accumulatedPauseTime + currentPauseTime;
       const elapsedSeconds = Math.floor(
         (Date.now() - new Date(data.topic_started_at).getTime()) / 1000
       );
-      remainingTime = Math.max(0, (currentTopic?.totalTime || 180) - elapsedSeconds);
+      // Subtract pause time from elapsed time for accurate remaining time
+      const effectiveElapsed = Math.max(0, elapsedSeconds - totalPauseTime);
+      remainingTime = Math.max(0, (currentTopic?.totalTime || 180) - effectiveElapsed);
       timeExpired = remainingTime === 0;
     }
 
@@ -454,6 +622,7 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
         timeExpired,
         showTransitionPage,
         topicsState,
+        aiGenerationPending,
       },
     });
   } catch (error) {
@@ -464,7 +633,8 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
 
 /**
  * POST /api/interview/answer
- * Submit student answer and get next AI question
+ * Submit student answer and queue AI question generation (non-blocking)
+ * Returns 202 Accepted immediately - frontend should poll /ai-status for completion
  */
 router.post('/answer', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -483,14 +653,12 @@ router.post('/answer', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Get current state and participant data
+    // Get current state
     const stateResult = await query(
       `SELECT
-        sp.extracted_text, sp.analyzed_topics,
-        ist.current_topic_index, ist.current_phase, ist.topics_state
-       FROM student_participants sp
-       JOIN interview_states ist ON sp.id = ist.participant_id
-       WHERE sp.id = $1`,
+        ist.current_topic_index, ist.current_phase, ist.topics_state, ist.ai_generation_pending
+       FROM interview_states ist
+       WHERE ist.participant_id = $1`,
       [req.participant.id]
     );
 
@@ -501,9 +669,16 @@ router.post('/answer', async (req: Request, res: Response): Promise<void> => {
 
     const state = stateResult.rows[0];
     const currentTopicIndex = state.current_topic_index;
-    const analyzedTopics = typeof state.analyzed_topics === 'string'
-      ? JSON.parse(state.analyzed_topics)
-      : state.analyzed_topics;
+
+    // Prevent submitting while AI is already generating
+    if (state.ai_generation_pending) {
+      res.status(409).json({
+        success: false,
+        error: 'AI question generation in progress',
+        aiGenerationPending: true,
+      });
+      return;
+    }
 
     // Get current turn index
     const turnResult = await query(
@@ -513,6 +688,7 @@ router.post('/answer', async (req: Request, res: Response): Promise<void> => {
       [req.participant.id, currentTopicIndex]
     );
     const nextTurnIndex = turnResult.rows[0].max_turn + 1;
+    const aiTurnIndex = nextTurnIndex + 1;
 
     // Save student answer
     await query(
@@ -521,42 +697,24 @@ router.post('/answer', async (req: Request, res: Response): Promise<void> => {
       [req.participant.id, currentTopicIndex, nextTurnIndex, answer.trim()]
     );
 
-    // Get previous conversations for context
-    const conversationsResult = await query(
-      `SELECT role, content FROM interview_conversations
-       WHERE participant_id = $1 AND topic_index = $2
-       ORDER BY turn_index ASC`,
-      [req.participant.id, currentTopicIndex]
-    );
-
-    // Generate next question
-    let nextQuestion: string;
-    try {
-      const prevConversations = (conversationsResult.rows as Array<{ role: string; content: string }>)
-        .map((c) => ({
-          role: c.role as 'ai' | 'student',
-          content: c.content,
-        }));
-
-      nextQuestion = await generateQuestion({
-        topic: analyzedTopics[currentTopicIndex],
-        assignmentText: state.extracted_text,
-        previousConversation: prevConversations,
-      });
-    } catch (error) {
-      console.error('Failed to generate next question:', error);
-      nextQuestion = '이 부분에 대해 더 자세히 설명해 주시겠어요?';
-    }
-
-    // Save AI question
-    const aiTurnIndex = nextTurnIndex + 1;
+    // Mark AI generation as pending and record start time for pause tracking
     await query(
-      `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
-       VALUES ($1, $2, $3, 'ai', $4)`,
-      [req.participant.id, currentTopicIndex, aiTurnIndex, nextQuestion]
+      `UPDATE interview_states
+       SET ai_generation_pending = TRUE,
+           ai_generation_started_at = NOW()
+       WHERE participant_id = $1`,
+      [req.participant.id]
     );
 
-    // Update topics_state to mark topic as started
+    // Create background job for AI generation
+    await query(
+      `INSERT INTO ai_generation_jobs
+       (participant_id, topic_index, turn_index, student_answer)
+       VALUES ($1, $2, $3, $4)`,
+      [req.participant.id, currentTopicIndex, aiTurnIndex, answer.trim()]
+    );
+
+    // Update topics_state to mark topic as started if needed
     const topicsState = state.topics_state || [];
     if (topicsState[currentTopicIndex] && !topicsState[currentTopicIndex].started) {
       topicsState[currentTopicIndex].started = true;
@@ -568,17 +726,96 @@ router.post('/answer', async (req: Request, res: Response): Promise<void> => {
       );
     }
 
-    res.status(200).json({
+    // Return immediately - frontend will poll for completion
+    res.status(202).json({
       success: true,
       data: {
-        message: 'Answer submitted',
-        nextQuestion,
-        turnIndex: aiTurnIndex,
+        message: 'Answer submitted, AI generating question',
+        aiGenerationPending: true,
+        turnIndex: nextTurnIndex,
       },
     });
   } catch (error) {
     console.error('Submit answer error:', error);
     res.status(500).json({ success: false, error: 'Failed to submit answer' });
+  }
+});
+
+/**
+ * GET /api/interview/ai-status
+ * Check if AI question generation is complete
+ * Used by frontend to poll for AI response after submitting answer
+ */
+router.get('/ai-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    // Get current state
+    const stateResult = await query(
+      `SELECT
+        ist.ai_generation_pending,
+        ist.ai_generation_started_at,
+        ist.current_topic_index
+       FROM interview_states ist
+       WHERE ist.participant_id = $1`,
+      [req.participant.id]
+    );
+
+    if (stateResult.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Interview state not found' });
+      return;
+    }
+
+    const {
+      ai_generation_pending,
+      ai_generation_started_at,
+      current_topic_index,
+    } = stateResult.rows[0];
+
+    if (ai_generation_pending) {
+      // Calculate how long AI has been generating
+      const generationTime = ai_generation_started_at
+        ? Math.floor((Date.now() - new Date(ai_generation_started_at).getTime()) / 1000)
+        : 0;
+
+      res.status(200).json({
+        success: true,
+        data: {
+          aiGenerationPending: true,
+          generationTimeSeconds: generationTime,
+        },
+      });
+      return;
+    }
+
+    // AI generation complete - get the latest AI message
+    const questionResult = await query(
+      `SELECT content, turn_index, created_at
+       FROM interview_conversations
+       WHERE participant_id = $1
+         AND topic_index = $2
+         AND role = 'ai'
+       ORDER BY turn_index DESC
+       LIMIT 1`,
+      [req.participant.id, current_topic_index]
+    );
+
+    const latestQuestion = questionResult.rows[0];
+
+    res.status(200).json({
+      success: true,
+      data: {
+        aiGenerationPending: false,
+        nextQuestion: latestQuestion?.content,
+        turnIndex: latestQuestion?.turn_index,
+      },
+    });
+  } catch (error) {
+    console.error('AI status check error:', error);
+    res.status(500).json({ success: false, error: 'Failed to check AI status' });
   }
 });
 
@@ -745,6 +982,14 @@ router.post('/topic-timeout', async (req: Request, res: Response): Promise<void>
       [JSON.stringify(topicsState), req.participant.id]
     );
 
+    // If last topic, start evaluation automatically in background
+    if (isLastTopic) {
+      console.log(`[topic-timeout] Last topic completed, starting auto-evaluation for: ${req.participant.id}`);
+      runEvaluation(req.participant.id).catch(err =>
+        console.error('[topic-timeout] Auto evaluation failed:', err)
+      );
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -823,6 +1068,12 @@ router.post('/confirm-transition', async (req: Request, res: Response): Promise<
          SET current_phase = 'finalizing', topics_state = $1
          WHERE participant_id = $2`,
         [JSON.stringify(topicsState), req.participant.id]
+      );
+
+      // Start evaluation automatically in background
+      console.log(`[confirm-transition] Last topic completed, starting auto-evaluation for: ${req.participant.id}`);
+      runEvaluation(req.participant.id).catch(err =>
+        console.error('[confirm-transition] Auto evaluation failed:', err)
       );
 
       res.status(200).json({
@@ -912,10 +1163,10 @@ router.post('/complete', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Get all conversations and analyzed topics
+    // Get all data including existing summary (for auto-evaluation case)
     const dataResult = await query(
       `SELECT
-        sp.extracted_text, sp.analyzed_topics,
+        sp.extracted_text, sp.analyzed_topics, sp.summary,
         ist.topics_state
        FROM student_participants sp
        LEFT JOIN interview_states ist ON sp.id = ist.participant_id
@@ -929,6 +1180,21 @@ router.post('/complete', async (req: Request, res: Response): Promise<void> => {
     }
 
     const data = dataResult.rows[0];
+
+    // If summary already exists (from auto-evaluation), return it directly
+    if (data.summary) {
+      console.log(`[complete] Summary already exists for: ${req.participant.id}`);
+      res.status(200).json({
+        success: true,
+        data: {
+          message: 'Interview completed',
+          status: 'completed',
+          summary: data.summary,
+        },
+      });
+      return;
+    }
+
     const analyzedTopics = typeof data.analyzed_topics === 'string'
       ? JSON.parse(data.analyzed_topics)
       : data.analyzed_topics;

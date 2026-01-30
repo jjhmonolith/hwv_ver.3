@@ -13,6 +13,7 @@ import speechRoutes from './routes/speech.js';
 
 // Worker imports (auto-starts when imported, except in test environment)
 import './workers/disconnectChecker.js';
+import './workers/aiGenerationWorker.js';
 
 // Load environment variables
 dotenv.config();
