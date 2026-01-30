@@ -251,7 +251,7 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
       totalTime: topicDuration,
       timeLeft: topicDuration,
       status: idx === 0 ? 'active' : 'pending',
-      started: false,
+      started: idx === 0 ? true : false,  // First topic starts immediately
     }));
 
     // Generate first question
@@ -267,12 +267,15 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
       firstQuestion = `${analyzedTopics[0].title}에 대해 설명해 주세요. 이 부분을 어떻게 작성하셨나요?`;
     }
 
-    // Create interview_states record
+    // Create interview_states record with topic_started_at for timer tracking
     await query(
-      `INSERT INTO interview_states (participant_id, current_topic_index, current_phase, topics_state)
-       VALUES ($1, 0, 'topic_intro', $2)
+      `INSERT INTO interview_states (participant_id, current_topic_index, current_phase, topics_state, topic_started_at)
+       VALUES ($1, 0, 'topic_active', $2, NOW())
        ON CONFLICT (participant_id) DO UPDATE
-       SET current_topic_index = 0, current_phase = 'topic_intro', topics_state = $2`,
+       SET current_topic_index = 0,
+           current_phase = 'topic_active',
+           topics_state = $2,
+           topic_started_at = COALESCE(interview_states.topic_started_at, NOW())`,
       [req.participant.id, JSON.stringify(topicsState)]
     );
 
@@ -655,10 +658,10 @@ router.post('/next-topic', async (req: Request, res: Response): Promise<void> =>
       firstQuestion = `${analyzedTopics[nextTopicIndex].title}에 대해 설명해 주세요.`;
     }
 
-    // Update interview state
+    // Update interview state with topic_started_at for immediate timer start
     await query(
       `UPDATE interview_states
-       SET current_topic_index = $1, current_phase = 'topic_intro', topics_state = $2, topic_started_at = NULL
+       SET current_topic_index = $1, current_phase = 'topic_active', topics_state = $2, topic_started_at = NOW()
        WHERE participant_id = $3`,
       [nextTopicIndex, JSON.stringify(topicsState), req.participant.id]
     );
@@ -855,10 +858,10 @@ router.post('/confirm-transition', async (req: Request, res: Response): Promise<
       firstQuestion = `${analyzedTopics[nextTopicIndex].title}에 대해 설명해 주세요.`;
     }
 
-    // Update interview state
+    // Update interview state with topic_started_at for immediate timer start
     await query(
       `UPDATE interview_states
-       SET current_topic_index = $1, current_phase = 'topic_intro', topics_state = $2, topic_started_at = NULL
+       SET current_topic_index = $1, current_phase = 'topic_active', topics_state = $2, topic_started_at = NOW()
        WHERE participant_id = $3`,
       [nextTopicIndex, JSON.stringify(topicsState), req.participant.id]
     );
