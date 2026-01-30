@@ -4,7 +4,7 @@
  * Jobs are persisted to DB so they survive server restarts and client disconnects.
  */
 
-import { query } from '../db/connection.js';
+import { query, getClient } from '../db/connection.js';
 import { generateQuestion, Topic } from '../services/llm.js';
 
 const POLL_INTERVAL_MS = 1000; // Check for pending jobs every second
@@ -119,97 +119,121 @@ async function processPendingJobs(): Promise<void> {
 
       console.log(`[AIWorker] Generated question: ${nextQuestion.substring(0, 50)}...`);
 
-      // Save AI question to conversations
-      await query(
-        `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
-         VALUES ($1, $2, $3, 'ai', $4)`,
-        [job.participant_id, job.topic_index, job.turn_index, nextQuestion]
-      );
+      // Use transaction to ensure INSERT and UPDATE are atomic
+      // This prevents the race condition where frontend polls before INSERT is committed
+      const client = await getClient();
+      try {
+        await client.query('BEGIN');
 
-      // Calculate pause duration and update interview state
-      const stateResult = await query<InterviewStateRow>(
-        `SELECT ai_generation_started_at, accumulated_pause_time
-         FROM interview_states WHERE participant_id = $1`,
-        [job.participant_id]
-      );
-
-      if (stateResult.rows.length > 0) {
-        const { ai_generation_started_at, accumulated_pause_time } = stateResult.rows[0];
-        const pauseDuration = ai_generation_started_at
-          ? Math.floor((Date.now() - new Date(ai_generation_started_at).getTime()) / 1000)
-          : 0;
-        const newAccumulatedPause = (accumulated_pause_time || 0) + pauseDuration;
-
-        console.log(`[AIWorker] Pause duration: ${pauseDuration}s, Total accumulated: ${newAccumulatedPause}s`);
-
-        await query(
-          `UPDATE interview_states
-           SET ai_generation_pending = FALSE,
-               ai_generation_started_at = NULL,
-               accumulated_pause_time = $1
-           WHERE participant_id = $2`,
-          [newAccumulatedPause, job.participant_id]
+        // Save AI question to conversations
+        await client.query(
+          `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
+           VALUES ($1, $2, $3, 'ai', $4)`,
+          [job.participant_id, job.topic_index, job.turn_index, nextQuestion]
         );
+
+        // Calculate pause duration and update interview state
+        const stateResult = await client.query<InterviewStateRow>(
+          `SELECT ai_generation_started_at, accumulated_pause_time
+           FROM interview_states WHERE participant_id = $1`,
+          [job.participant_id]
+        );
+
+        if (stateResult.rows.length > 0) {
+          const { ai_generation_started_at, accumulated_pause_time } = stateResult.rows[0];
+          const pauseDuration = ai_generation_started_at
+            ? Math.floor((Date.now() - new Date(ai_generation_started_at).getTime()) / 1000)
+            : 0;
+          const newAccumulatedPause = (accumulated_pause_time || 0) + pauseDuration;
+
+          console.log(`[AIWorker] Pause duration: ${pauseDuration}s, Total accumulated: ${newAccumulatedPause}s`);
+
+          await client.query(
+            `UPDATE interview_states
+             SET ai_generation_pending = FALSE,
+                 ai_generation_started_at = NULL,
+                 accumulated_pause_time = $1
+             WHERE participant_id = $2`,
+            [newAccumulatedPause, job.participant_id]
+          );
+        }
+
+        // Mark job as completed
+        await client.query(
+          `UPDATE ai_generation_jobs
+           SET status = 'completed', generated_question = $1, completed_at = NOW()
+           WHERE id = $2`,
+          [nextQuestion, job.id]
+        );
+
+        await client.query('COMMIT');
+        console.log(`[AIWorker] Completed job ${job.id}`);
+      } catch (txError) {
+        await client.query('ROLLBACK');
+        throw txError;
+      } finally {
+        client.release();
       }
-
-      // Mark job as completed
-      await query(
-        `UPDATE ai_generation_jobs
-         SET status = 'completed', generated_question = $1, completed_at = NOW()
-         WHERE id = $2`,
-        [nextQuestion, job.id]
-      );
-
-      console.log(`[AIWorker] Completed job ${job.id}`);
     } catch (error) {
       console.error(`[AIWorker] Failed job ${job.id}:`, error);
 
-      // Mark job as failed with fallback question
+      // Mark job as failed with fallback question using transaction
       const fallbackQuestion = '이 부분에 대해 더 자세히 설명해 주시겠어요?';
+      const failClient = await getClient();
 
-      await query(
-        `UPDATE ai_generation_jobs
-         SET status = 'failed',
-             generated_question = $1,
-             error_message = $2,
-             completed_at = NOW()
-         WHERE id = $3`,
-        [fallbackQuestion, (error as Error).message, job.id]
-      );
+      try {
+        await failClient.query('BEGIN');
 
-      // Still save the fallback question to conversations
-      await query(
-        `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
-         VALUES ($1, $2, $3, 'ai', $4)
-         ON CONFLICT DO NOTHING`,
-        [job.participant_id, job.topic_index, job.turn_index, fallbackQuestion]
-      );
-
-      // Calculate pause duration even on failure
-      const stateResult = await query<InterviewStateRow>(
-        `SELECT ai_generation_started_at, accumulated_pause_time
-         FROM interview_states WHERE participant_id = $1`,
-        [job.participant_id]
-      );
-
-      if (stateResult.rows.length > 0) {
-        const { ai_generation_started_at, accumulated_pause_time } = stateResult.rows[0];
-        const pauseDuration = ai_generation_started_at
-          ? Math.floor((Date.now() - new Date(ai_generation_started_at).getTime()) / 1000)
-          : 0;
-        const newAccumulatedPause = (accumulated_pause_time || 0) + pauseDuration;
-
-        await query(
-          `UPDATE interview_states
-           SET ai_generation_pending = FALSE,
-               ai_generation_started_at = NULL,
-               accumulated_pause_time = $1
-           WHERE participant_id = $2`,
-          [newAccumulatedPause, job.participant_id]
+        await failClient.query(
+          `UPDATE ai_generation_jobs
+           SET status = 'failed',
+               generated_question = $1,
+               error_message = $2,
+               completed_at = NOW()
+           WHERE id = $3`,
+          [fallbackQuestion, (error as Error).message, job.id]
         );
-      }
 
-      console.log(`[AIWorker] Job ${job.id} failed, fallback question saved`);
+        // Still save the fallback question to conversations
+        await failClient.query(
+          `INSERT INTO interview_conversations (participant_id, topic_index, turn_index, role, content)
+           VALUES ($1, $2, $3, 'ai', $4)
+           ON CONFLICT DO NOTHING`,
+          [job.participant_id, job.topic_index, job.turn_index, fallbackQuestion]
+        );
+
+        // Calculate pause duration even on failure
+        const stateResult = await failClient.query<InterviewStateRow>(
+          `SELECT ai_generation_started_at, accumulated_pause_time
+           FROM interview_states WHERE participant_id = $1`,
+          [job.participant_id]
+        );
+
+        if (stateResult.rows.length > 0) {
+          const { ai_generation_started_at, accumulated_pause_time } = stateResult.rows[0];
+          const pauseDuration = ai_generation_started_at
+            ? Math.floor((Date.now() - new Date(ai_generation_started_at).getTime()) / 1000)
+            : 0;
+          const newAccumulatedPause = (accumulated_pause_time || 0) + pauseDuration;
+
+          await failClient.query(
+            `UPDATE interview_states
+             SET ai_generation_pending = FALSE,
+                 ai_generation_started_at = NULL,
+                 accumulated_pause_time = $1
+             WHERE participant_id = $2`,
+            [newAccumulatedPause, job.participant_id]
+          );
+        }
+
+        await failClient.query('COMMIT');
+        console.log(`[AIWorker] Job ${job.id} failed, fallback question saved`);
+      } catch (txError) {
+        await failClient.query('ROLLBACK');
+        console.error(`[AIWorker] Failed to save fallback for job ${job.id}:`, txError);
+      } finally {
+        failClient.release();
+      }
     }
   } catch (error) {
     console.error('[AIWorker] Error processing jobs:', error);
