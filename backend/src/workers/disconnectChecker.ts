@@ -1,22 +1,28 @@
 /**
  * Disconnect Checker Worker
  * Runs every 5 seconds to detect disconnected participants and handle timeouts
+ *
+ * Simplified flow (no interview_paused status):
+ * - 15s no heartbeat → set disconnected_at (status stays interview_in_progress)
+ * - 30min disconnected → status = abandoned
+ * - Reconnect → clear disconnected_at
  */
 import { query } from '../db/connection.js';
 
 // Configuration
 const CHECK_INTERVAL_MS = 5000; // 5 seconds
-const DISCONNECT_THRESHOLD_SECONDS = 15; // Mark as disconnected after 15s without heartbeat
+const DISCONNECT_THRESHOLD_SECONDS = 15; // Mark disconnected_at after 15s without heartbeat
 const RECONNECT_TIMEOUT_SECONDS = 1800; // 30 minutes default timeout
 
 /**
- * Mark participants as disconnected (interview_paused) if no heartbeat for 15 seconds
+ * Mark participants as disconnected (set disconnected_at) if no heartbeat for 15 seconds
+ * Note: Status stays 'interview_in_progress', only disconnected_at is set
  */
 async function markDisconnectedParticipants(): Promise<number> {
   try {
     const result = await query(
       `UPDATE student_participants
-       SET status = 'interview_paused', disconnected_at = NOW()
+       SET disconnected_at = NOW()
        WHERE status = 'interview_in_progress'
          AND last_active_at < NOW() - INTERVAL '${DISCONNECT_THRESHOLD_SECONDS} seconds'
          AND disconnected_at IS NULL
@@ -37,6 +43,7 @@ async function markDisconnectedParticipants(): Promise<number> {
 
 /**
  * Mark participants as abandoned if disconnected for more than reconnect_timeout
+ * Now checks interview_in_progress with disconnected_at set (instead of interview_paused)
  */
 async function markAbandonedParticipants(): Promise<number> {
   try {
@@ -45,7 +52,7 @@ async function markAbandonedParticipants(): Promise<number> {
        SET status = 'abandoned'
        FROM assignment_sessions s
        WHERE sp.session_id = s.id
-         AND sp.status = 'interview_paused'
+         AND sp.status = 'interview_in_progress'
          AND sp.disconnected_at IS NOT NULL
          AND sp.disconnected_at < NOW() - (COALESCE(s.reconnect_timeout, ${RECONNECT_TIMEOUT_SECONDS}) || ' seconds')::INTERVAL
        RETURNING sp.id, sp.student_name`
@@ -66,10 +73,11 @@ async function markAbandonedParticipants(): Promise<number> {
 /**
  * Check for topic timeouts while participant is disconnected
  * Updates interview phase to topic_expired_while_away if time ran out
+ * Now checks interview_in_progress with disconnected_at set (instead of interview_paused)
  */
-async function checkTopicTimeoutsForPausedParticipants(): Promise<number> {
+async function checkTopicTimeoutsForDisconnectedParticipants(): Promise<number> {
   try {
-    // Get all paused participants with their interview states
+    // Get all disconnected participants (interview_in_progress with disconnected_at set)
     const result = await query<{
       participant_id: number;
       student_name: string;
@@ -88,7 +96,7 @@ async function checkTopicTimeoutsForPausedParticipants(): Promise<number> {
        FROM student_participants sp
        JOIN interview_states ist ON sp.id = ist.participant_id
        JOIN assignment_sessions s ON sp.session_id = s.id
-       WHERE sp.status = 'interview_paused'
+       WHERE sp.status = 'interview_in_progress'
          AND sp.disconnected_at IS NOT NULL
          AND ist.current_phase NOT IN ('topic_expired_while_away', 'completed', 'finalizing')`
     );
@@ -140,7 +148,7 @@ async function checkTopicTimeoutsForPausedParticipants(): Promise<number> {
 async function runChecks(): Promise<void> {
   await markDisconnectedParticipants();
   await markAbandonedParticipants();
-  await checkTopicTimeoutsForPausedParticipants();
+  await checkTopicTimeoutsForDisconnectedParticipants();
 }
 
 // Start the worker

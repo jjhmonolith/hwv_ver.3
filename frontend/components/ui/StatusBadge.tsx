@@ -2,28 +2,26 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { getInterviewProgressLabel } from '@/lib/utils';
 import {
   Circle,
   CheckCircle2,
-  Clock,
   PlayCircle,
-  PauseCircle,
   XCircle,
   AlertCircle,
   FileText,
+  Loader2,
 } from 'lucide-react';
 
 // Session status types
 type SessionStatus = 'draft' | 'active' | 'closed';
 
-// Participant status types
+// Participant status types (simplified)
 type ParticipantStatus =
   | 'registered'
   | 'file_submitted'
   | 'interview_in_progress'
-  | 'interview_paused'
   | 'completed'
-  | 'timeout'
   | 'abandoned';
 
 export type BadgeStatus = SessionStatus | ParticipantStatus;
@@ -33,6 +31,10 @@ export interface StatusBadgeProps {
   size?: 'sm' | 'md';
   showIcon?: boolean;
   className?: string;
+  // For interview progress display
+  currentPhase?: string;
+  currentTopicIndex?: number;
+  totalTopics?: number;
 }
 
 // Status configurations
@@ -47,19 +49,19 @@ const statusConfig: Record<
 > = {
   // Session statuses
   draft: {
-    label: 'Draft',
+    label: '준비중',
     bgColor: 'bg-gray-100',
     textColor: 'text-gray-700',
     icon: Circle,
   },
   active: {
-    label: 'Active',
+    label: '진행중',
     bgColor: 'bg-green-100',
     textColor: 'text-green-700',
     icon: PlayCircle,
   },
   closed: {
-    label: 'Closed',
+    label: '종료됨',
     bgColor: 'bg-gray-100',
     textColor: 'text-gray-500',
     icon: CheckCircle2,
@@ -67,46 +69,63 @@ const statusConfig: Record<
 
   // Participant statuses
   registered: {
-    label: 'Registered',
+    label: '대기중',
     bgColor: 'bg-blue-100',
     textColor: 'text-blue-700',
     icon: Circle,
   },
   file_submitted: {
-    label: 'File Submitted',
+    label: '파일 제출됨',
     bgColor: 'bg-purple-100',
     textColor: 'text-purple-700',
     icon: FileText,
   },
   interview_in_progress: {
-    label: 'In Progress',
+    label: '진행중',
     bgColor: 'bg-green-100',
     textColor: 'text-green-700',
     icon: PlayCircle,
   },
-  interview_paused: {
-    label: 'Paused',
-    bgColor: 'bg-yellow-100',
-    textColor: 'text-yellow-700',
-    icon: PauseCircle,
-  },
   completed: {
-    label: 'Completed',
+    label: '완료',
     bgColor: 'bg-emerald-100',
     textColor: 'text-emerald-700',
     icon: CheckCircle2,
   },
-  timeout: {
-    label: 'Timeout',
-    bgColor: 'bg-orange-100',
-    textColor: 'text-orange-700',
-    icon: Clock,
-  },
   abandoned: {
-    label: 'Abandoned',
+    label: '이탈',
     bgColor: 'bg-red-100',
     textColor: 'text-red-700',
     icon: XCircle,
+  },
+};
+
+// Phase-specific styling for interview_in_progress
+const phaseStyles: Record<string, { bgColor: string; textColor: string; icon: React.ElementType }> = {
+  topic_intro: {
+    bgColor: 'bg-green-100',
+    textColor: 'text-green-700',
+    icon: PlayCircle,
+  },
+  topic_active: {
+    bgColor: 'bg-green-100',
+    textColor: 'text-green-700',
+    icon: PlayCircle,
+  },
+  topic_transition: {
+    bgColor: 'bg-yellow-100',
+    textColor: 'text-yellow-700',
+    icon: Circle,
+  },
+  topic_expired_while_away: {
+    bgColor: 'bg-orange-100',
+    textColor: 'text-orange-700',
+    icon: AlertCircle,
+  },
+  finalizing: {
+    bgColor: 'bg-blue-100',
+    textColor: 'text-blue-700',
+    icon: Loader2,
   },
 };
 
@@ -125,6 +144,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   size = 'md',
   showIcon = true,
   className,
+  currentPhase,
+  currentTopicIndex,
+  totalTopics,
 }) => {
   const config = statusConfig[status];
 
@@ -144,20 +166,34 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     );
   }
 
-  const Icon = config.icon;
+  // For interview_in_progress, use detailed progress label and phase-specific styling
+  let label = config.label;
+  let bgColor = config.bgColor;
+  let textColor = config.textColor;
+  let Icon = config.icon;
+
+  if (status === 'interview_in_progress' && currentPhase !== undefined) {
+    label = getInterviewProgressLabel(status, currentPhase, currentTopicIndex, totalTopics);
+    const phaseStyle = phaseStyles[currentPhase];
+    if (phaseStyle) {
+      bgColor = phaseStyle.bgColor;
+      textColor = phaseStyle.textColor;
+      Icon = phaseStyle.icon;
+    }
+  }
 
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1 rounded-full font-medium',
-        config.bgColor,
-        config.textColor,
+        bgColor,
+        textColor,
         sizeStyles[size],
         className
       )}
     >
-      {showIcon && <Icon className={iconSizes[size]} />}
-      {config.label}
+      {showIcon && <Icon className={cn(iconSizes[size], currentPhase === 'finalizing' && 'animate-spin')} />}
+      {label}
     </span>
   );
 };

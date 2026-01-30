@@ -52,9 +52,7 @@ export function getParticipantStatusColor(status: string): string {
     registered: 'bg-gray-400',
     file_submitted: 'bg-yellow-500',
     interview_in_progress: 'bg-purple-500',
-    interview_paused: 'bg-orange-500',
     completed: 'bg-green-500',
-    timeout: 'bg-red-500',
     abandoned: 'bg-red-500',
   };
   return colors[status] || 'bg-gray-400';
@@ -80,12 +78,44 @@ export function getParticipantStatusLabel(status: string): string {
     registered: '대기중',
     file_submitted: '파일 제출됨',
     interview_in_progress: '진행중',
-    interview_paused: '일시정지',
     completed: '완료',
-    timeout: '시간초과',
     abandoned: '이탈',
   };
   return labels[status] || status;
+}
+
+/**
+ * Get detailed interview progress label
+ * Shows "주제 1/3 진행중" format for interview_in_progress status
+ */
+export function getInterviewProgressLabel(
+  status: string,
+  currentPhase?: string,
+  currentTopicIndex?: number,
+  totalTopics?: number
+): string {
+  if (status !== 'interview_in_progress') {
+    return getParticipantStatusLabel(status);
+  }
+
+  const topicNum = (currentTopicIndex ?? 0) + 1;
+  const total = totalTopics ?? 3;
+
+  switch (currentPhase) {
+    case 'topic_intro':
+    case 'topic_active':
+      return `주제 ${topicNum}/${total} 진행중`;
+    case 'topic_transition':
+      return `주제 ${topicNum + 1}/${total} 대기중`;
+    case 'topic_expired_while_away':
+      return `주제 ${topicNum}/${total} 시간초과`;
+    case 'finalizing':
+      return '평가 중';
+    case 'completed':
+      return '완료';
+    default:
+      return `주제 ${topicNum}/${total} 진행중`;
+  }
 }
 
 /**

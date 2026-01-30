@@ -11,23 +11,19 @@ CREATE TYPE session_status AS ENUM ('draft', 'active', 'closed');
 -- Interview mode
 CREATE TYPE interview_mode AS ENUM ('voice', 'chat', 'student_choice');
 
--- Participant status
+-- Participant status (simplified: 5 values)
 CREATE TYPE participant_status AS ENUM (
     'registered',
     'file_submitted',
     'interview_in_progress',
-    'interview_paused',
     'completed',
-    'timeout',
     'abandoned'
 );
 
--- Interview phase
+-- Interview phase (simplified: 6 values)
 CREATE TYPE interview_phase AS ENUM (
-    'waiting',
     'topic_intro',
     'topic_active',
-    'topic_paused',
     'topic_transition',
     'topic_expired_while_away',
     'finalizing',

@@ -211,13 +211,15 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 
     const session = result.rows[0];
 
-    // Get participants
+    // Get participants with interview state for topic progress display
     const participantsResult = await query(
-      `SELECT id, student_name, student_id, status,
-              registered_at, interview_ended_at
-       FROM student_participants
-       WHERE session_id = $1
-       ORDER BY registered_at DESC`,
+      `SELECT sp.id, sp.student_name, sp.student_id, sp.status,
+              sp.registered_at, sp.interview_ended_at,
+              ist.current_topic_index, ist.current_phase
+       FROM student_participants sp
+       LEFT JOIN interview_states ist ON sp.id = ist.participant_id
+       WHERE sp.session_id = $1
+       ORDER BY sp.registered_at DESC`,
       [id]
     );
 
@@ -245,6 +247,8 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
           status: p.status,
           registeredAt: p.registered_at,
           interviewEndedAt: p.interview_ended_at,
+          currentTopicIndex: p.current_topic_index,
+          currentPhase: p.current_phase,
         })),
       },
     });

@@ -66,7 +66,7 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
   const [descriptionModalTopic, setDescriptionModalTopic] = useState<Topic | null>(null);
 
   const showSummary = participant.summary &&
-    ['completed', 'timeout'].includes(participant.status);
+    participant.status === 'completed';
 
   // Group conversations by topic
   const groupedByTopic = useMemo(() => {

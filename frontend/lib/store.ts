@@ -40,9 +40,7 @@ export type ParticipantStatus =
   | 'registered'
   | 'file_submitted'
   | 'interview_in_progress'
-  | 'interview_paused'
   | 'completed'
-  | 'timeout'
   | 'abandoned';
 
 export interface Topic {
@@ -69,10 +67,8 @@ export interface InterviewState {
 }
 
 export type InterviewPhase =
-  | 'waiting'
   | 'topic_intro'
   | 'topic_active'
-  | 'topic_paused'
   | 'topic_transition'
   | 'topic_expired_while_away'
   | 'finalizing'

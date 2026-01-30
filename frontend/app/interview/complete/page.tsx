@@ -18,86 +18,107 @@ export default function CompletePage() {
   // Local state
   const [summary, setSummary] = useState<EvaluationSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [status, setStatus] = useState<'completed' | 'timeout' | 'abandoned'>('completed');
+  const [status, setStatus] = useState<'completed' | 'abandoned'>('completed');
+  const [loadingMessage, setLoadingMessage] = useState('결과를 불러오는 중...');
 
-  // Load summary from participant or fetch
+  // Load summary from participant or fetch with polling
   useEffect(() => {
-    const loadSummary = async () => {
+    let pollCount = 0;
+    const MAX_POLLS = 15; // 15 attempts * 2 seconds = 30 seconds max
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isMounted = true;
+
+    const loadSummary = async (): Promise<boolean> => {
       if (!sessionToken) {
         router.push('/join');
-        return;
+        return true; // Done (redirecting)
       }
 
       // Check if summary exists in participant
       if (participant?.summary) {
-        setSummary(participant.summary);
-        setStatus(participant.status as 'completed' | 'timeout' | 'abandoned');
-        setIsLoading(false);
-        return;
-      }
-
-      // Check if already in terminal state (completed/timeout/abandoned)
-      // In this case, try to get state first to avoid re-calling complete
-      if (participant?.status && ['completed', 'timeout', 'abandoned'].includes(participant.status)) {
-        try {
-          const stateResponse = await api.interview.getState(sessionToken) as {
-            status: string;
-            analyzedTopics: unknown[];
-            currentTopicIndex: number;
-            currentPhase: string;
-            topicsState: unknown[];
-          };
-
-          // If we're here, we have no summary but status is terminal
-          // This means we need to show a fallback
-          setStatus(participant.status as 'completed' | 'timeout' | 'abandoned');
-          setSummary({
-            strengths: ['인터뷰에 참여해주셔서 감사합니다.'],
-            weaknesses: [],
-            overallComment: participant.status === 'timeout'
-              ? '시간 초과로 인터뷰가 종료되었습니다.'
-              : participant.status === 'abandoned'
-                ? '세션이 만료되었습니다.'
-                : '인터뷰가 완료되었습니다. 결과는 교사에게 전달됩니다.',
-          });
+        if (isMounted) {
+          setSummary(participant.summary);
+          setStatus(participant.status as 'completed' | 'abandoned');
           setIsLoading(false);
-          return;
-        } catch {
-          // Fall through to complete API
         }
+        return true; // Done
       }
 
-      // Fetch from API (will complete the interview and generate summary)
+      // Fetch from API (will return existing summary or generate new one)
       try {
         const response = await api.interview.complete(sessionToken) as {
           status: string;
           summary: EvaluationSummary;
         };
 
-        setSummary(response.summary);
+        if (response.summary) {
+          if (isMounted) {
+            setSummary(response.summary);
 
-        // Update participant
-        if (participant) {
-          setParticipant({
-            ...participant,
-            status: 'completed',
-            summary: response.summary,
-          });
+            // Update participant
+            if (participant) {
+              setParticipant({
+                ...participant,
+                status: 'completed',
+                summary: response.summary,
+              });
+            }
+            setIsLoading(false);
+          }
+          return true; // Done
         }
+
+        // Summary not ready yet - poll again
+        return false;
       } catch (err) {
         console.error('Failed to load summary:', err);
-        // Use default summary on error
-        setSummary({
-          strengths: ['인터뷰에 참여해주셔서 감사합니다.'],
-          weaknesses: [],
-          overallComment: '인터뷰가 완료되었습니다. 결과는 교사에게 전달됩니다.',
-        });
-      } finally {
-        setIsLoading(false);
+        // On error, use default summary
+        if (isMounted) {
+          setSummary({
+            strengths: ['인터뷰에 참여해주셔서 감사합니다.'],
+            weaknesses: [],
+            overallComment: '인터뷰가 완료되었습니다. 결과는 교사에게 전달됩니다.',
+          });
+          setIsLoading(false);
+        }
+        return true; // Done (with fallback)
       }
     };
 
-    loadSummary();
+    const pollForSummary = async () => {
+      const done = await loadSummary();
+
+      if (!done && isMounted) {
+        pollCount++;
+
+        if (pollCount >= MAX_POLLS) {
+          // Max polls reached - show fallback
+          console.log('[complete] Max polls reached, showing fallback');
+          setSummary({
+            strengths: ['인터뷰에 참여해주셔서 감사합니다.'],
+            weaknesses: [],
+            overallComment: '인터뷰가 완료되었습니다. 결과는 곧 교사에게 전달됩니다.',
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        // Update loading message
+        setLoadingMessage(`AI가 인터뷰를 분석하고 있습니다... (${pollCount}/${MAX_POLLS})`);
+
+        // Schedule next poll
+        timeoutId = setTimeout(pollForSummary, 2000);
+      }
+    };
+
+    pollForSummary();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [sessionToken, participant, router, setParticipant]);
 
   // Handle finish
@@ -120,17 +141,6 @@ export default function CompletePage() {
           title: '인터뷰 완료',
           message: '수고하셨습니다! 인터뷰가 정상적으로 완료되었습니다.',
         };
-      case 'timeout':
-        return {
-          icon: (
-            <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          ),
-          bgColor: 'bg-amber-100',
-          title: '시간 초과',
-          message: '시간 초과로 인터뷰가 종료되었습니다.',
-        };
       case 'abandoned':
         return {
           icon: (
@@ -152,8 +162,8 @@ export default function CompletePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-600">결과를 불러오는 중...</p>
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-600 text-center">{loadingMessage}</p>
         </div>
       </div>
     );

@@ -48,6 +48,9 @@ interface Participant {
   chosenInterviewMode?: string;
   registeredAt: string;
   interviewEndedAt?: string;
+  // Interview progress info
+  currentTopicIndex?: number;
+  currentPhase?: string;
 }
 
 type FilterStatus = 'all' | 'completed' | 'interview_in_progress' | 'registered';
@@ -532,7 +535,13 @@ export default function SessionDetailPage() {
                               <span className="capitalize">{participant.chosenInterviewMode}</span>
                             </span>
                           )}
-                          <StatusBadge status={participant.status} size="sm" />
+                          <StatusBadge
+                            status={participant.status}
+                            size="sm"
+                            currentPhase={participant.currentPhase}
+                            currentTopicIndex={participant.currentTopicIndex}
+                            totalTopics={session.topicCount}
+                          />
                         </div>
                       </div>
                     </button>

@@ -97,8 +97,8 @@ router.post('/reconnect', async (req: Request, res: Response): Promise<void> => 
         return;
       }
 
-      // Handle interview_paused or interview_in_progress status
-      if ((data.status === 'interview_paused' || data.status === 'interview_in_progress') && data.topics_state) {
+      // Handle interview_in_progress status with disconnected_at set
+      if (data.status === 'interview_in_progress' && data.topics_state) {
         const topicsState = typeof data.topics_state === 'string'
           ? JSON.parse(data.topics_state)
           : data.topics_state;
@@ -132,19 +132,11 @@ router.post('/reconnect', async (req: Request, res: Response): Promise<void> => 
         }
       }
 
-      // Restore status from interview_paused to interview_in_progress (if not showing transition page)
-      if (data.status === 'interview_paused' && !showTransitionPage) {
-        await query(
-          `UPDATE student_participants SET status = 'interview_in_progress', disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
-          [data.id]
-        );
-      } else {
-        // Clear disconnected_at
-        await query(
-          `UPDATE student_participants SET disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
-          [data.id]
-        );
-      }
+      // Clear disconnected_at on reconnection
+      await query(
+        `UPDATE student_participants SET disconnected_at = NULL, last_active_at = NOW() WHERE id = $1`,
+        [data.id]
+      );
     }
 
     // Update last_active_at
@@ -163,7 +155,6 @@ router.post('/reconnect', async (req: Request, res: Response): Promise<void> => 
         redirectTo = '/interview/start';
         break;
       case 'interview_in_progress':
-      case 'interview_paused':
         redirectTo = '/interview';
         break;
       case 'completed':

@@ -267,7 +267,7 @@ export default function InterviewPage() {
         // Update interview state
         setInterviewState({
           currentTopicIndex: state.currentTopicIndex,
-          currentPhase: state.currentPhase as 'topic_intro' | 'topic_active' | 'topic_transition' | 'completed' | 'waiting' | 'topic_paused' | 'topic_expired_while_away' | 'finalizing',
+          currentPhase: state.currentPhase as 'topic_intro' | 'topic_active' | 'topic_transition' | 'topic_expired_while_away' | 'finalizing' | 'completed',
           topicsState: state.topicsState.map((t) => ({
             ...t,
             status: t.status as 'pending' | 'active' | 'completed' | 'expired',
