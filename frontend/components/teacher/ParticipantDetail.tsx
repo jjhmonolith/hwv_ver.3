@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { StatusBadge, BadgeStatus } from '@/components/ui/StatusBadge';
-import { ConversationView } from './ConversationView';
+import { Modal } from '@/components/ui/Modal';
 import { Download, FileText, Mic, MessageSquare, X, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 
 interface Conversation {
@@ -51,11 +52,32 @@ interface ParticipantDetailProps {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
 
+function formatTime(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function ParticipantDetail({ participant, sessionId, token, onClose }: ParticipantDetailProps) {
   const [expandedTopics, setExpandedTopics] = useState<number[]>([]);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [descriptionModalTopic, setDescriptionModalTopic] = useState<Topic | null>(null);
+
   const showSummary = participant.summary &&
     ['completed', 'timeout'].includes(participant.status);
+
+  // Group conversations by topic
+  const groupedByTopic = useMemo(() => {
+    return participant.conversations.reduce((acc, conv) => {
+      if (!acc[conv.topicIndex]) {
+        acc[conv.topicIndex] = [];
+      }
+      acc[conv.topicIndex].push(conv);
+      return acc;
+    }, {} as Record<number, Conversation[]>);
+  }, [participant.conversations]);
 
   const toggleTopic = (index: number) => {
     setExpandedTopics(prev =>
@@ -162,12 +184,12 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
           </div>
         </section>
 
-        {/* Analyzed Topics Section */}
+        {/* Topics & Conversations Section */}
         {participant.analyzedTopics && participant.analyzedTopics.length > 0 && (
           <section>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                Analyzed Topics ({participant.analyzedTopics.length})
+                Topics & Conversations ({participant.analyzedTopics.length})
               </h3>
               <button
                 onClick={toggleAllTopics}
@@ -177,36 +199,103 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
               </button>
             </div>
             <div className="space-y-2">
-              {participant.analyzedTopics.map((topic, index) => (
-                <div key={index} className="bg-gray-50 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => toggleTopic(index)}
-                    className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        {index + 1}
-                      </span>
-                      <span className="font-medium text-gray-900">{topic.title}</span>
-                    </div>
-                    {expandedTopics.includes(index) ? (
-                      <ChevronUp className="w-4 h-4 text-gray-400" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
-                    )}
-                  </button>
-                  {expandedTopics.includes(index) && topic.description && (
-                    <div className="px-3 pb-3 pt-0">
-                      <div className="ml-9 p-3 bg-white rounded border border-gray-200">
-                        <div className="flex items-start gap-2">
-                          <BookOpen className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <p className="text-sm text-gray-600">{topic.description}</p>
+              {participant.analyzedTopics.map((topic, index) => {
+                const topicConversations = groupedByTopic[index] || [];
+
+                return (
+                  <div key={index} className="bg-gray-50 rounded-lg overflow-hidden">
+                    {/* Topic Header */}
+                    <button
+                      onClick={() => toggleTopic(index)}
+                      className="w-full flex items-center justify-between p-3 text-left hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">
+                          {index + 1}
+                        </span>
+                        <span className="font-medium text-gray-900">{topic.title}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">{topicConversations.length}개 대화</span>
+                        {expandedTopics.includes(index) ? (
+                          <ChevronUp className="w-4 h-4 text-gray-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Expanded Content */}
+                    {expandedTopics.includes(index) && (
+                      <div className="px-3 pb-3 pt-0 border-t border-gray-200">
+                        {/* Description Button */}
+                        {topic.description && (
+                          <div className="ml-9 mt-3 mb-3">
+                            <button
+                              onClick={() => setDescriptionModalTopic(topic)}
+                              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+                            >
+                              <BookOpen className="w-4 h-4" />
+                              설명
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Conversations for this topic */}
+                        <div className="ml-9 space-y-2 mt-3">
+                          {topicConversations.length === 0 ? (
+                            <div className="text-center py-4 text-gray-400 text-sm">
+                              대화 기록이 없습니다
+                            </div>
+                          ) : (
+                            topicConversations.map((conv, i) => (
+                              <div
+                                key={i}
+                                className={`p-3 rounded-lg ${
+                                  conv.role === 'ai'
+                                    ? 'bg-white border border-gray-200 mr-6'
+                                    : 'bg-blue-50 ml-6'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-semibold text-sm">
+                                    {conv.role === 'ai' ? '🤖 AI' : `👤 ${participant.studentName}`}
+                                  </span>
+                                  <span className="text-xs text-gray-400">
+                                    {formatTime(conv.createdAt)}
+                                  </span>
+                                </div>
+                                {conv.role === 'ai' ? (
+                                  <div className="text-gray-700 text-sm prose prose-sm max-w-none">
+                                    <ReactMarkdown
+                                      components={{
+                                        p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                                        ul: ({ children }) => <ul className="list-disc ml-4 my-1">{children}</ul>,
+                                        ol: ({ children }) => <ol className="list-decimal ml-4 my-1">{children}</ol>,
+                                        li: ({ children }) => <li>{children}</li>,
+                                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                                        code: ({ children }) => (
+                                          <code className="bg-gray-200 px-1 rounded text-xs">{children}</code>
+                                        ),
+                                      }}
+                                    >
+                                      {conv.content}
+                                    </ReactMarkdown>
+                                  </div>
+                                ) : (
+                                  <div className="text-gray-700 whitespace-pre-wrap text-sm">
+                                    {conv.content}
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
@@ -308,23 +397,19 @@ export function ParticipantDetail({ participant, sessionId, token, onClose }: Pa
           </section>
         )}
 
-        {/* Conversation History Section */}
-        <section>
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Conversation History
-          </h3>
-          {participant.conversations.length > 0 ? (
-            <ConversationView
-              conversations={participant.conversations}
-              topics={participant.analyzedTopics || []}
-            />
-          ) : (
-            <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
-              No conversation history
-            </div>
-          )}
-        </section>
       </div>
+
+      {/* Description Modal */}
+      {descriptionModalTopic && (
+        <Modal
+          isOpen={!!descriptionModalTopic}
+          onClose={() => setDescriptionModalTopic(null)}
+          title={descriptionModalTopic.title}
+          size="sm"
+        >
+          <p className="text-gray-700 whitespace-pre-wrap">{descriptionModalTopic.description}</p>
+        </Modal>
+      )}
     </div>
   );
 }

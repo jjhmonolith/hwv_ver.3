@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge, BadgeStatus } from '@/components/ui/StatusBadge';
+import { MultiSelectDropdown } from '@/components/ui/MultiSelectDropdown';
 import { ParticipantDetail } from '@/components/teacher/ParticipantDetail';
 import { useTeacherStore } from '@/lib/store';
 import { api, ApiError } from '@/lib/api';
@@ -88,7 +89,7 @@ export default function SessionDetailPage() {
   const { token } = useTeacherStore();
 
   const [session, setSession] = useState<SessionDetail | null>(null);
-  const [filter, setFilter] = useState<FilterStatus>('all');
+  const [selectedFilters, setSelectedFilters] = useState<Set<FilterStatus>>(() => new Set<FilterStatus>(['all']));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -134,8 +135,8 @@ export default function SessionDetailPage() {
 
   // Filter participants
   const filteredParticipants = session?.participants.filter((p) => {
-    if (filter === 'all') return true;
-    return p.status === filter;
+    if (selectedFilters.has('all') || selectedFilters.size === 0) return true;
+    return selectedFilters.has(p.status as FilterStatus);
   }) || [];
 
   // Actions
@@ -354,44 +355,26 @@ export default function SessionDetailPage() {
         )}>
           {/* Session Info */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Settings Card */}
+            {/* Statistics Card */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Settings</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Statistics</h2>
 
-              <dl className="space-y-3">
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Topics</dt>
-                  <dd className="font-medium text-gray-900">{session.topicCount}</dd>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <Users className="h-5 w-5 text-blue-600 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-blue-600">
+                    {session.participants.length}
+                  </p>
+                  <p className="text-xs text-blue-600">Total</p>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Time per Topic</dt>
-                  <dd className="font-medium text-gray-900">
-                    {formatDuration(session.topicDuration)}
-                  </dd>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <Clock className="h-5 w-5 text-green-600 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-green-600">
+                    {session.participants.filter((p) => p.status === 'completed').length}
+                  </p>
+                  <p className="text-xs text-green-600">Completed</p>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Interview Mode</dt>
-                  <dd className="font-medium text-gray-900 capitalize">
-                    {session.interviewMode.replace('_', ' ')}
-                  </dd>
-                </div>
-                {session.startsAt && (
-                  <div className="flex justify-between">
-                    <dt className="text-gray-500">Started</dt>
-                    <dd className="font-medium text-gray-900 text-sm">
-                      {formatDate(session.startsAt)}
-                    </dd>
-                  </div>
-                )}
-                {session.endsAt && (
-                  <div className="flex justify-between">
-                    <dt className="text-gray-500">Ended</dt>
-                    <dd className="font-medium text-gray-900 text-sm">
-                      {formatDate(session.endsAt)}
-                    </dd>
-                  </div>
-                )}
-              </dl>
+              </div>
             </div>
 
             {/* Access Code Card */}
@@ -446,26 +429,44 @@ export default function SessionDetailPage() {
               </div>
             )}
 
-            {/* Stats Card */}
+            {/* Settings Card */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Statistics</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Settings</h2>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-3 bg-blue-50 rounded-lg">
-                  <Users className="h-5 w-5 text-blue-600 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-blue-600">
-                    {session.participants.length}
-                  </p>
-                  <p className="text-xs text-blue-600">Total</p>
+              <dl className="space-y-3">
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Topics</dt>
+                  <dd className="font-medium text-gray-900">{session.topicCount}</dd>
                 </div>
-                <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <Clock className="h-5 w-5 text-green-600 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-green-600">
-                    {session.participants.filter((p) => p.status === 'completed').length}
-                  </p>
-                  <p className="text-xs text-green-600">Completed</p>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Time per Topic</dt>
+                  <dd className="font-medium text-gray-900">
+                    {formatDuration(session.topicDuration)}
+                  </dd>
                 </div>
-              </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Interview Mode</dt>
+                  <dd className="font-medium text-gray-900 capitalize">
+                    {session.interviewMode.replace('_', ' ')}
+                  </dd>
+                </div>
+                {session.startsAt && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Started</dt>
+                    <dd className="font-medium text-gray-900 text-sm">
+                      {formatDate(session.startsAt)}
+                    </dd>
+                  </div>
+                )}
+                {session.endsAt && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Ended</dt>
+                    <dd className="font-medium text-gray-900 text-sm">
+                      {formatDate(session.endsAt)}
+                    </dd>
+                  </div>
+                )}
+              </dl>
             </div>
           </div>
 
@@ -477,35 +478,24 @@ export default function SessionDetailPage() {
                   <h2 className="text-lg font-semibold text-gray-900">Participants</h2>
 
                   {/* Filter */}
-                  <div className="flex flex-wrap items-center gap-1">
-                    {(['all', 'completed', 'interview_in_progress', 'registered'] as FilterStatus[]).map(
-                      (status) => (
-                        <button
-                          key={status}
-                          onClick={() => setFilter(status)}
-                          className={cn(
-                            'px-2 py-1 text-xs font-medium rounded transition-colors',
-                            filter === status
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'text-gray-500 hover:bg-gray-100'
-                          )}
-                        >
-                          {status === 'all'
-                            ? 'All'
-                            : status === 'interview_in_progress'
-                            ? 'In Progress'
-                            : status.charAt(0).toUpperCase() + status.slice(1)}
-                        </button>
-                      )
-                    )}
-                  </div>
+                  <MultiSelectDropdown<FilterStatus>
+                    options={[
+                      { value: 'all', label: 'All' },
+                      { value: 'completed', label: 'Completed' },
+                      { value: 'interview_in_progress', label: 'In Progress' },
+                      { value: 'registered', label: 'Registered' },
+                    ]}
+                    selected={selectedFilters}
+                    onChange={setSelectedFilters}
+                    allValue="all"
+                  />
                 </div>
               </div>
 
               {/* Participants Table */}
               {filteredParticipants.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
-                  No participants {filter !== 'all' ? `with status "${filter}"` : 'yet'}
+                  No participants {!selectedFilters.has('all') && selectedFilters.size > 0 ? 'matching filter' : 'yet'}
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
