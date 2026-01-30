@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useStudentStore } from '@/lib/store';
 import { api } from '@/lib/api';
 
-const AUTO_ADVANCE_SECONDS = 10;
-
 /**
  * Topic transition page
  * Shows when a topic is completed and waiting to move to next topic
@@ -25,7 +23,6 @@ export default function TransitionPage() {
   } = useStudentStore();
 
   // Local state
-  const [countdown, setCountdown] = useState(AUTO_ADVANCE_SECONDS);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,24 +35,6 @@ export default function TransitionPage() {
 
   // Determine if topic expired while away
   const isExpiredWhileAway = interviewState?.currentPhase === 'topic_expired_while_away';
-
-  // Auto-advance countdown (skip for last topic)
-  useEffect(() => {
-    if (isLastTopic || isLoading) return;
-
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleNextTopic();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isLastTopic, isLoading]);
 
   // Redirect if no session
   useEffect(() => {
@@ -250,10 +229,7 @@ export default function TransitionPage() {
           ) : isLastTopic ? (
             '결과 확인'
           ) : (
-            <>
-              다음 주제 시작
-              {countdown > 0 && <span className="text-blue-200">({countdown}초)</span>}
-            </>
+            '다음 주제 시작'
           )}
         </button>
       </div>
