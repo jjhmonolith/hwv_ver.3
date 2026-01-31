@@ -172,7 +172,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   let textColor = config.textColor;
   let Icon = config.icon;
 
-  if (status === 'interview_in_progress' && currentPhase !== undefined) {
+  if (status === 'interview_in_progress' && currentPhase != null) {
     label = getInterviewProgressLabel(status, currentPhase, currentTopicIndex, totalTopics);
     const phaseStyle = phaseStyles[currentPhase];
     if (phaseStyle) {

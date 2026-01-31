@@ -90,12 +90,17 @@ export function getParticipantStatusLabel(status: string): string {
  */
 export function getInterviewProgressLabel(
   status: string,
-  currentPhase?: string,
-  currentTopicIndex?: number,
-  totalTopics?: number
+  currentPhase?: string | null,
+  currentTopicIndex?: number | null,
+  totalTopics?: number | null
 ): string {
   if (status !== 'interview_in_progress') {
     return getParticipantStatusLabel(status);
+  }
+
+  // null 또는 undefined인 경우 interview_states가 없는 것으로 처리
+  if (currentPhase == null) {
+    return '진행중';
   }
 
   const topicNum = (currentTopicIndex ?? 0) + 1;
@@ -105,8 +110,13 @@ export function getInterviewProgressLabel(
     case 'topic_intro':
     case 'topic_active':
       return `주제 ${topicNum}/${total} 진행중`;
-    case 'topic_transition':
+    case 'topic_transition': {
+      // 마지막 주제 이후라면 "평가 대기중" 표시
+      if (topicNum >= total) {
+        return '평가 대기중';
+      }
       return `주제 ${topicNum + 1}/${total} 대기중`;
+    }
     case 'topic_expired_while_away':
       return `주제 ${topicNum}/${total} 시간초과`;
     case 'finalizing':
