@@ -30,7 +30,6 @@ export default function TransitionPage() {
   const topicsState = interviewState?.topicsState ?? [];
   const currentTopicIndex = interviewState?.currentTopicIndex ?? 0;
   const currentTopic = topicsState[currentTopicIndex];
-  const nextTopic = topicsState[currentTopicIndex + 1];
   const isLastTopic = currentTopicIndex >= topicsState.length - 1;
 
   // Determine if topic expired while away
@@ -195,13 +194,6 @@ export default function TransitionPage() {
           </p>
         )}
 
-        {/* Next topic preview */}
-        {!isLastTopic && nextTopic && (
-          <div className="bg-blue-50 rounded-xl p-4 mb-6">
-            <p className="text-sm text-blue-600 mb-1">다음 주제</p>
-            <p className="font-semibold text-blue-900">{nextTopic.title}</p>
-          </div>
-        )}
 
         {/* Info text */}
         <p className="text-sm text-slate-500 mb-6">
