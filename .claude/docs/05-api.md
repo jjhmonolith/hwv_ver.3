@@ -29,10 +29,12 @@
 |------|------|
 | 200 | 성공 |
 | 201 | 생성 성공 |
+| 202 | 처리 수락 (비동기) |
 | 400 | 잘못된 요청 |
 | 401 | 인증 필요 |
 | 403 | 권한 없음 |
 | 404 | 리소스 없음 |
+| 409 | 충돌 (중복 처리 중) |
 | 500 | 서버 오류 |
 
 ---
@@ -637,6 +639,7 @@ X-Session-Token: <session_token>
   "current_topic_index": 1,
   "current_phase": "topic_active",
   "remaining_time": 120,
+  "aiGenerationPending": false,
   "topics_state": [...],
   "current_question": "다음 질문입니다...",
   "conversations": [
@@ -670,6 +673,7 @@ X-Session-Token: <session_token>
   "remaining_time": 118,
   "time_expired": false,
   "show_transition_page": false,
+  "aiGenerationPending": false,
   "topics_state": [...]
 }
 ```
@@ -682,6 +686,16 @@ X-Session-Token: <session_token>
   "show_transition_page": true
 }
 ```
+
+**AI 생성 중:**
+```json
+{
+  "aiGenerationPending": true,
+  "remaining_time": 118
+}
+```
+
+> **Note:** `aiGenerationPending`이 true일 때는 타이머가 일시정지되어야 합니다.
 
 ---
 
@@ -701,18 +715,62 @@ X-Session-Token: <session_token>
 }
 ```
 
-**Response (200):**
+**Response (202 Accepted):**
 ```json
 {
-  "message": "Answer submitted",
-  "next_question": "다음 질문입니다...",
-  "turn_index": 3
+  "message": "Answer processing",
+  "job_id": 123
 }
 ```
 
+> **Note:** 답변은 백그라운드에서 처리됩니다. 클라이언트는 `GET /api/interview/ai-status`를 폴링하여 AI 질문 생성 완료를 확인해야 합니다.
+
+**Errors:**
+- 409: 이미 처리 중인 답변이 있음
+
 ---
 
-### 5.6 다음 주제
+### 5.6 AI 생성 상태 조회
+
+`GET /api/interview/ai-status`
+
+**Headers:**
+```
+X-Session-Token: <session_token>
+```
+
+**Response (200) - 생성 완료:**
+```json
+{
+  "pending": false,
+  "question": "생성된 AI 질문...",
+  "error": null
+}
+```
+
+**Response (200) - 생성 중:**
+```json
+{
+  "pending": true,
+  "question": null,
+  "error": null
+}
+```
+
+**Response (200) - 생성 실패:**
+```json
+{
+  "pending": false,
+  "question": null,
+  "error": "AI 질문 생성에 실패했습니다."
+}
+```
+
+> **Note:** 클라이언트는 이 엔드포인트를 1초 간격으로 폴링하여 AI 질문 생성 완료를 확인합니다.
+
+---
+
+### 5.8 다음 주제
 
 `POST /api/interview/next-topic`
 
@@ -746,7 +804,7 @@ X-Session-Token: <session_token>
 
 ---
 
-### 5.7 전환 확인 (이탈 후 재접속)
+### 5.9 전환 확인 (이탈 후 재접속)
 
 `POST /api/interview/confirm-transition`
 
@@ -769,7 +827,7 @@ X-Session-Token: <session_token>
 
 ---
 
-### 5.8 주제 시간 초과
+### 5.10 주제 시간 초과
 
 `POST /api/interview/topic-timeout`
 
@@ -789,7 +847,7 @@ X-Session-Token: <session_token>
 
 ---
 
-### 5.9 인터뷰 완료
+### 5.11 인터뷰 완료
 
 `POST /api/interview/complete`
 

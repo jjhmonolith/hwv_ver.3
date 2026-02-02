@@ -2,7 +2,7 @@
 
 ## 1. 개요
 
-PostgreSQL을 사용하며, 5개의 핵심 테이블로 구성됩니다.
+PostgreSQL을 사용하며, 6개의 핵심 테이블로 구성됩니다.
 
 ```
 ┌─────────────┐       ┌───────────────────┐
@@ -15,12 +15,12 @@ PostgreSQL을 사용하며, 5개의 핵심 테이블로 구성됩니다.
                       │student_participants│
                       └─────────┬─────────┘
                                 │
-                                │ 1:1
-                ┌───────────────┴───────────────┐
-                │                               │
-      ┌─────────▼─────────┐          ┌──────────▼───────────┐
-      │  interview_states │          │interview_conversations│
-      └───────────────────┘          └──────────────────────┘
+                ┌───────────────┼───────────────┐
+                │ 1:1           │ 1:N           │ 1:N
+      ┌─────────▼─────────┐ ┌───▼───────────┐ ┌─▼────────────────────┐
+      │  interview_states │ │ai_generation_ │ │interview_conversations│
+      └───────────────────┘ │     jobs      │ └──────────────────────┘
+                            └───────────────┘
 ```
 
 ---
@@ -76,6 +76,7 @@ CREATE TABLE assignment_sessions (
     topic_count INTEGER NOT NULL DEFAULT 3 CHECK (topic_count BETWEEN 1 AND 5),
     topic_duration INTEGER NOT NULL DEFAULT 180 CHECK (topic_duration BETWEEN 60 AND 600),
     interview_mode interview_mode NOT NULL DEFAULT 'student_choice',
+    assignment_info TEXT, -- 과제 컨텍스트 정보 (LLM 프롬프트용)
 
     -- 접근 정보
     access_code VARCHAR(6) UNIQUE,
@@ -128,9 +129,7 @@ CREATE TYPE participant_status AS ENUM (
     'registered',
     'file_submitted',
     'interview_in_progress',
-    'interview_paused',
     'completed',
-    'timeout',
     'abandoned'
 );
 
@@ -232,10 +231,8 @@ CREATE INDEX idx_participants_disconnected ON student_participants(disconnected_
 
 ```sql
 CREATE TYPE interview_phase AS ENUM (
-    'waiting',
     'topic_intro',
     'topic_active',
-    'topic_paused',
     'topic_transition',
     'topic_expired_while_away',
     'finalizing',
@@ -247,7 +244,7 @@ CREATE TABLE interview_states (
 
     -- 현재 진행 상태
     current_topic_index INTEGER NOT NULL DEFAULT 0,
-    current_phase interview_phase NOT NULL DEFAULT 'waiting',
+    current_phase interview_phase NOT NULL DEFAULT 'topic_intro',
 
     -- 주제별 상태
     topics_state JSONB NOT NULL DEFAULT '[]',
@@ -255,12 +252,18 @@ CREATE TABLE interview_states (
     -- 시간 추적
     topic_started_at TIMESTAMP WITH TIME ZONE,
 
+    -- AI 생성 추적 (백그라운드 처리용)
+    ai_generation_pending BOOLEAN DEFAULT FALSE,
+    ai_generation_started_at TIMESTAMP WITH TIME ZONE,
+    accumulated_pause_time INTEGER DEFAULT 0, -- AI 처리로 일시정지된 총 시간 (초)
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- 인덱스
 CREATE INDEX idx_interview_states_phase ON interview_states(current_phase);
+CREATE INDEX idx_interview_states_ai_pending ON interview_states(ai_generation_pending) WHERE ai_generation_pending = TRUE;
 ```
 
 | 컬럼 | 타입 | 필수 | 설명 |
@@ -270,6 +273,9 @@ CREATE INDEX idx_interview_states_phase ON interview_states(current_phase);
 | current_phase | ENUM | O | 현재 진행 단계 |
 | topics_state | JSONB | O | 주제별 상태 배열 |
 | topic_started_at | TIMESTAMP | X | 현재 주제 시작 시간 |
+| ai_generation_pending | BOOLEAN | O | AI 질문 생성 대기 중 여부 |
+| ai_generation_started_at | TIMESTAMP | X | AI 생성 시작 시간 |
+| accumulated_pause_time | INTEGER | O | AI 처리로 일시정지된 총 시간 (초) |
 
 **topics_state JSONB 구조:**
 ```json
@@ -295,7 +301,53 @@ CREATE INDEX idx_interview_states_phase ON interview_states(current_phase);
 
 ---
 
-### 2.5 interview_conversations (대화 기록)
+### 2.5 ai_generation_jobs (AI 생성 작업)
+
+백그라운드에서 AI 질문 생성 작업을 처리하기 위한 큐 테이블입니다.
+
+```sql
+CREATE TABLE ai_generation_jobs (
+    id SERIAL PRIMARY KEY,
+    participant_id UUID NOT NULL REFERENCES student_participants(id) ON DELETE CASCADE,
+    topic_index INTEGER NOT NULL,
+    turn_index INTEGER NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending, processing, completed, failed
+    student_answer TEXT NOT NULL,
+    generated_question TEXT,
+    error_message TEXT,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    UNIQUE(participant_id, topic_index, turn_index)
+);
+
+-- 인덱스
+CREATE INDEX idx_ai_jobs_participant ON ai_generation_jobs(participant_id);
+CREATE INDEX idx_ai_jobs_status ON ai_generation_jobs(status);
+CREATE INDEX idx_ai_jobs_pending ON ai_generation_jobs(status) WHERE status = 'pending';
+```
+
+| 컬럼 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| id | SERIAL | PK | 자동 증가 ID |
+| participant_id | UUID | FK | 참가자 |
+| topic_index | INTEGER | O | 주제 인덱스 |
+| turn_index | INTEGER | O | 턴 순서 |
+| status | VARCHAR(20) | O | 작업 상태 (pending/processing/completed/failed) |
+| student_answer | TEXT | O | 학생 답변 |
+| generated_question | TEXT | X | 생성된 AI 질문 |
+| error_message | TEXT | X | 에러 메시지 (실패 시) |
+| started_at | TIMESTAMP | O | 작업 시작 시간 |
+| completed_at | TIMESTAMP | X | 작업 완료 시간 |
+
+**작업 흐름:**
+1. 학생이 답변 제출 → `pending` 상태로 작업 생성
+2. 워커가 작업 선택 → `processing` 상태로 변경
+3. AI 질문 생성 완료 → `completed` 상태, generated_question 저장
+4. 실패 시 → `failed` 상태, error_message 저장
+
+---
+
+### 2.6 interview_conversations (대화 기록)
 
 인터뷰 중 AI와 학생의 대화를 저장합니다.
 
@@ -496,10 +548,11 @@ WHERE p.id = $1;
 ### 6.3 이탈 학생 조회 (Worker)
 
 ```sql
+-- 재접속 타임아웃 초과한 이탈 학생 → abandoned 처리
 SELECT p.id, p.student_name, p.disconnected_at, s.reconnect_timeout
 FROM student_participants p
 JOIN assignment_sessions s ON p.session_id = s.id
-WHERE p.status = 'interview_paused'
+WHERE p.status = 'interview_in_progress'
   AND p.disconnected_at IS NOT NULL
   AND p.disconnected_at < NOW() - INTERVAL '1 second' * s.reconnect_timeout;
 ```
@@ -515,8 +568,20 @@ SELECT
 FROM interview_states i
 JOIN student_participants p ON i.participant_id = p.id
 JOIN assignment_sessions s ON p.session_id = s.id
-WHERE i.current_phase IN ('topic_active', 'topic_paused')
+WHERE i.current_phase = 'topic_active'
   AND i.topic_started_at IS NOT NULL;
+```
+
+### 6.5 AI 생성 대기 중인 작업 조회
+
+```sql
+SELECT j.*, p.extracted_text, p.analyzed_topics
+FROM ai_generation_jobs j
+JOIN student_participants p ON j.participant_id = p.id
+WHERE j.status = 'pending'
+ORDER BY j.started_at ASC
+LIMIT 1
+FOR UPDATE SKIP LOCKED;
 ```
 
 ---
@@ -532,8 +597,9 @@ backend/db/migrations/
 ├── 003_create_participants.sql
 ├── 004_create_interview_states.sql
 ├── 005_create_conversations.sql
-├── 006_add_triggers.sql
-└── 007_add_functions.sql
+├── 006_create_ai_generation_jobs.sql
+├── 007_add_triggers.sql
+└── 008_add_functions.sql
 ```
 
 ### 7.2 마이그레이션 스크립트

@@ -39,75 +39,74 @@
 | `registered` | 세션 참가 완료 | 참가 API 호출 |
 | `file_submitted` | 파일 업로드 완료 | 파일 분석 완료 |
 | `interview_in_progress` | 인터뷰 진행 중 | 인터뷰 시작 |
-| `interview_paused` | 이탈로 일시 정지 | 15초간 heartbeat 없음 |
 | `completed` | 정상 완료 | 모든 주제 완료 |
-| `timeout` | 시간 초과 | 마지막 주제 시간 만료 |
 | `abandoned` | 중도 이탈 | 30분간 재접속 없음 |
+
+> **Note:** `interview_paused`와 `timeout` 상태는 제거되었습니다. 이탈 중인 학생은 `interview_in_progress` 상태를 유지하며 `disconnected_at` 필드로 이탈 여부를 추적합니다.
 
 ### 3.2 인터뷰 Phase (interview_states.current_phase)
 
 | Phase | 설명 | 타이머 |
 |-------|------|--------|
-| `waiting` | 시작 대기 | 정지 |
 | `topic_intro` | 주제 소개 | 정지 |
 | `topic_active` | 주제 진행 중 | **작동** |
-| `topic_paused` | 이탈로 일시 정지 | 서버에서 차감 |
 | `topic_transition` | 주제 완료, 다음 전환 대기 | 정지 |
 | `topic_expired_while_away` | 이탈 중 시간 만료 | 정지 |
 | `finalizing` | 인터뷰 종료 처리 중 | 정지 |
 | `completed` | 인터뷰 완료 | 정지 |
+
+> **Note:** `waiting`과 `topic_paused` Phase는 제거되었습니다. 이탈 여부는 `disconnected_at` 필드로 추적합니다.
 
 ---
 
 ## 4. 상태 전이 다이어그램
 
 ```
-                              ┌──────────────────────────────────────────┐
-                              │                                          │
-                              ▼                                          │
-                        ┌──────────┐                                     │
-                        │registered│                                     │
-                        └────┬─────┘                                     │
-                             │ 파일 제출                                  │
-                             ▼                                           │
-                     ┌──────────────┐                                    │
-                     │file_submitted│                                    │
-                     └──────┬───────┘                                    │
-                            │ 인터뷰 시작                                 │
-                            ▼                                            │
-      ┌─────────────────────────┐      15초 Heartbeat 없음               │
-      │interview_in_progress    │◄─────────────────┐                     │
-      │ (topic_active)          │                  │                     │
-      └────┬────────────────────┘                  │                     │
-           │                                       │                     │
-           │ 15초 Heartbeat 없음                   │ 재접속              │
-           ▼                                       │ (30분 이내)         │
-      ┌──────────────────┐                         │                     │
-      │interview_paused  │─────────────────────────┘                     │
-      │ (topic_paused)   │                                               │
-      └────┬─────────────┘                                               │
-           │                                                             │
-           ├─────────────────────────────────────────────────────────┐   │
-           │ 30분 초과                          이탈 중 주제 만료    │   │
-           ▼                                       ▼                 │   │
-      ┌──────────┐                        ┌──────────────────┐       │   │
-      │abandoned │                        │topic_expired_    │       │   │
-      │(중도이탈)│                        │while_away        │───────┘   │
-      └──────────┘                        └────────┬─────────┘           │
-                                                   │                     │
-                                                   │ 재접속 후 확인      │
-                                                   ▼                     │
-      ┌─────────┐                         ┌──────────────────┐           │
-      │timeout  │◄────────────────────────│topic_transition  │───────────┘
-      │(시간초과)│  마지막 주제 완료       └──────────────────┘
-      └─────────┘                                  │
-           ▲                                       │ 다음 주제 있음
-           │                                       ▼
-           │                              ┌──────────────────┐
-           └──────────────────────────────│completed         │
-               모든 주제 완료             │(완료)            │
-                                          └──────────────────┘
+                        ┌──────────┐
+                        │registered│
+                        └────┬─────┘
+                             │ 파일 제출
+                             ▼
+                     ┌──────────────┐
+                     │file_submitted│
+                     └──────┬───────┘
+                            │ 인터뷰 시작
+                            ▼
+      ┌─────────────────────────────────────────────┐
+      │interview_in_progress (topic_active)         │
+      │ - 정상 진행 중 (heartbeat 정상)             │
+      │ - 이탈 중 (disconnected_at != null)        │◄─┐
+      └────┬───────────────────────────────────────┘  │
+           │                                          │
+           ├───────────────────────────┬──────────────┘
+           │                           │
+           │ 30분 타임아웃 초과         │ 재접속 (30분 이내)
+           ▼                           │
+      ┌──────────┐                     │
+      │abandoned │                     │
+      │(중도이탈)│                     │
+      └──────────┘                     │
+                                       │
+      ┌────────────────────────────────┴──────────────┐
+      │                                                │
+      │ 주제 시간 만료 (접속 중)    주제 시간 만료 (이탈 중) │
+      ▼                            ▼                   │
+┌──────────────────┐      ┌──────────────────┐         │
+│topic_transition  │      │topic_expired_    │         │
+│                  │      │while_away        │─────────┘
+└────────┬─────────┘      └────────┬─────────┘
+         │                         │
+         │ 학생 버튼 클릭          │ 재접속 후 버튼 클릭
+         ▼                         ▼
+┌──────────────────────────────────────────────────────┐
+│                   다음 주제 또는 완료                   │
+│  마지막 주제 → completed                              │
+│  다음 주제 있음 → topic_active                        │
+└──────────────────────────────────────────────────────┘
 ```
+
+> **Note:** `interview_paused`, `topic_paused`, `timeout` 상태는 제거되었습니다.
+> 이탈 추적은 `disconnected_at` 필드를 사용합니다.
 
 ---
 
@@ -235,10 +234,11 @@
 | `registered` | 대기중 | 회색 | ○ |
 | `file_submitted` | 파일 제출 | 노란색 | ◐ |
 | `interview_in_progress` | 진행중 | 보라색 | ● |
-| `interview_paused` | 일시정지 | 주황색 | ⏸ |
+| `interview_in_progress` + `disconnected_at` | 이탈 | 주황색 | ⏸ |
 | `completed` | 완료 | 녹색 | ✓ |
-| `timeout` | 시간초과 | 빨간색 | ⏱ |
 | `abandoned` | 중도이탈 | 빨간색 | ✕ |
+
+> **Note:** 이탈 상태는 `disconnected_at` 필드가 설정된 `interview_in_progress` 상태입니다.
 
 ---
 
@@ -262,27 +262,23 @@ setInterval(async () => {
 const HEARTBEAT_TIMEOUT = 15; // 초
 
 async function checkDisconnectedParticipants() {
+  // 상태는 interview_in_progress로 유지하고 disconnected_at만 설정
   const result = await db.query(`
     UPDATE student_participants
-    SET status = 'interview_paused',
-        disconnected_at = NOW()
+    SET disconnected_at = NOW()
     WHERE status = 'interview_in_progress'
+      AND disconnected_at IS NULL
       AND last_active_at < NOW() - INTERVAL '${HEARTBEAT_TIMEOUT} seconds'
     RETURNING id, student_name
   `);
 
   for (const row of result.rows) {
-    // interview_states도 업데이트
-    await db.query(`
-      UPDATE interview_states
-      SET current_phase = 'topic_paused'
-      WHERE participant_id = $1
-    `, [row.id]);
-
     console.log(`[DisconnectChecker] Participant disconnected: ${row.student_name}`);
   }
 }
 ```
+
+> **Note:** 상태는 `interview_in_progress`로 유지됩니다. 이탈 여부는 `disconnected_at` 필드로 추적합니다.
 
 ### 7.3 타임아웃 처리 (checkTimeoutParticipants)
 
@@ -294,7 +290,8 @@ async function checkTimeoutParticipants() {
     UPDATE student_participants
     SET status = 'abandoned',
         interview_ended_at = NOW()
-    WHERE status = 'interview_paused'
+    WHERE status = 'interview_in_progress'
+      AND disconnected_at IS NOT NULL
       AND disconnected_at < NOW() - INTERVAL '${RECONNECT_TIMEOUT} seconds'
     RETURNING id, student_name
   `);
@@ -311,24 +308,25 @@ async function checkTimeoutParticipants() {
 async function checkTopicTimeouts() {
   // 활성 인터뷰 조회
   const interviews = await db.query(`
-    SELECT s.*, p.status as p_status, p.id as participant_id
+    SELECT s.*, p.disconnected_at, p.id as participant_id
     FROM interview_states s
     JOIN student_participants p ON s.participant_id = p.id
-    WHERE s.current_phase IN ('topic_active', 'topic_paused')
+    WHERE s.current_phase = 'topic_active'
   `);
 
   for (const interview of interviews.rows) {
     const topicsState = interview.topics_state;
     const currentTopic = topicsState[interview.current_topic_index];
 
-    // 경과 시간 계산 (이탈 시간 포함)
+    // 경과 시간 계산 (AI 처리 시간 제외)
     const elapsed = Math.floor(
       (Date.now() - new Date(interview.topic_started_at).getTime()) / 1000
     );
+    const effectiveElapsed = elapsed - (interview.accumulated_pause_time || 0);
 
-    if (elapsed >= currentTopic.totalTime) {
+    if (effectiveElapsed >= currentTopic.totalTime) {
       const isLastTopic = interview.current_topic_index >= topicsState.length - 1;
-      const isDisconnected = interview.p_status === 'interview_paused';
+      const isDisconnected = interview.disconnected_at !== null;
 
       if (isLastTopic) {
         // 마지막 주제 만료 → 인터뷰 종료
@@ -340,7 +338,7 @@ async function checkTopicTimeouts() {
 
         await db.query(`
           UPDATE student_participants
-          SET status = 'timeout', interview_ended_at = NOW()
+          SET status = 'completed', interview_ended_at = NOW()
           WHERE id = $1
         `, [interview.participant_id]);
 
@@ -427,16 +425,16 @@ router.post('/reconnect', async (req, res) => {
   const state = interviewState.rows[0];
   const showTransitionPage = state?.current_phase === 'topic_expired_while_away';
 
-  // 상태 복원
+  // 상태 복원 (disconnected_at 초기화)
   await db.query(`
     UPDATE student_participants
-    SET status = 'interview_in_progress',
-        disconnected_at = NULL,
+    SET disconnected_at = NULL,
         last_active_at = NOW()
     WHERE id = $1
   `, [p.id]);
 
-  if (state && !showTransitionPage) {
+  // 전환 페이지가 아닌 경우 topic_active로 복원
+  if (state && !showTransitionPage && state.current_phase !== 'topic_transition') {
     await db.query(`
       UPDATE interview_states
       SET current_phase = 'topic_active'
@@ -664,7 +662,8 @@ useEffect(() => {
 | `HEARTBEAT_TIMEOUT` | 15초 | 이탈 판정 기준 시간 | Backend Worker |
 | `RECONNECT_TIMEOUT` | 30분 | 재접속 허용 시간 | Session 설정 |
 | `topic_duration` | 세션 설정 | 주제당 할당 시간 | Session 생성 시 |
-| `AUTO_ADVANCE_SECONDS` | 10초 | 자동 전환 카운트다운 | Frontend |
+
+> **Note:** 자동 전환 기능이 제거되어 `AUTO_ADVANCE_SECONDS` 설정은 더 이상 사용되지 않습니다.
 
 ---
 

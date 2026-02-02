@@ -104,11 +104,35 @@ useEffect(() => {
     if (response.remaining_time < timeLeft) {
       setTimeLeft(response.remaining_time);
     }
+
+    // AI 생성 중이면 타이머 정지
+    if (response.aiGenerationPending) {
+      setAiGenerating(true);
+    }
   }, 5000);
 
   return () => clearInterval(interval);
 }, [timeLeft]);
 ```
+
+### 2.5 타이머 정확도 (accumulated_pause_time)
+
+서버에서 AI 처리 시간을 정확하게 제외하기 위해 `accumulated_pause_time` 필드를 사용합니다.
+
+```typescript
+// 남은 시간 계산 (서버)
+const elapsed = Math.floor(
+  (Date.now() - topic_started_at.getTime()) / 1000
+);
+const effectiveElapsed = elapsed - accumulated_pause_time;
+const remainingTime = Math.max(0, totalTime - effectiveElapsed);
+```
+
+| 이벤트 | accumulated_pause_time 변화 |
+|--------|---------------------------|
+| AI 생성 시작 | 시작 시간 기록 |
+| AI 생성 완료 | += (완료 시간 - 시작 시간) |
+| 새로고침 후 복원 | 누적된 시간 그대로 유지 |
 
 ---
 
@@ -532,49 +556,30 @@ const handleVoiceSubmit = async () => {
 
 ---
 
-## 5. 자동 전환 카운트다운
+## 5. 주제 전환
 
 ### 5.1 전환 조건
 
-| 조건 | 전환 페이지 유형 |
-|------|-----------------|
-| 주제 시간 만료 (접속 중) | `topic_transition` |
-| 이탈 중 주제 시간 만료 | `topic_expired_while_away` |
-| 마지막 주제 완료 | 결과 페이지로 이동 |
+| 조건 | 전환 페이지 유형 | 동작 |
+|------|-----------------|------|
+| 주제 시간 만료 (접속 중) | `topic_transition` | 학생이 버튼 클릭 시 다음 주제 시작 |
+| 이탈 중 주제 시간 만료 | `topic_expired_while_away` | 학생이 버튼 클릭 시 다음 주제 시작 |
+| 마지막 주제 완료 | 결과 페이지 | 인터뷰 완료 처리 |
+
+> **Note:** 모든 주제 전환은 학생의 명시적 버튼 클릭이 필요합니다. 자동 전환 기능은 제거되었습니다.
 
 ### 5.2 구현
 
 ```typescript
 // interview/transition/page.tsx
 
-const AUTO_ADVANCE_SECONDS = 10;
-
 export default function TransitionPage() {
-  const [countdown, setCountdown] = useState(AUTO_ADVANCE_SECONDS);
   const router = useRouter();
   const { interviewState } = useStudentStore();
 
   const isExpiredWhileAway = interviewState?.current_phase === 'topic_expired_while_away';
   const isLastTopic = interviewState?.current_topic_index >=
     (interviewState?.topics_state?.length || 0) - 1;
-
-  // 자동 전환 카운트다운
-  useEffect(() => {
-    if (isLastTopic) return; // 마지막 주제는 수동 확인
-
-    const timer = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleNextTopic();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isLastTopic]);
 
   const handleNextTopic = async () => {
     if (isLastTopic) {
@@ -618,7 +623,7 @@ export default function TransitionPage() {
       </p>
 
       <button onClick={handleNextTopic}>
-        {isLastTopic ? '결과 확인' : `다음 주제 시작 ${countdown > 0 ? `(${countdown}초)` : ''}`}
+        {isLastTopic ? '결과 확인' : '다음 주제 시작'}
       </button>
     </div>
   );
@@ -627,7 +632,217 @@ export default function TransitionPage() {
 
 ---
 
-## 6. Turn State Guard
+## 6. 백그라운드 AI 생성 (aiGenerationWorker)
+
+### 6.1 개요
+
+학생이 답변을 제출하면 AI 질문 생성이 백그라운드에서 비동기로 처리됩니다. 이를 통해:
+- 새로고침 시에도 AI 생성 작업이 유지됨
+- Race condition 방지 (트랜잭션 + UNIQUE 제약)
+- 타이머 정확도 향상 (AI 처리 시간 제외)
+
+### 6.2 작업 흐름
+
+```
+학생 답변 제출
+       │
+       ▼
+┌─────────────────────┐
+│ POST /answer (202)  │ ← 즉시 응답 반환
+│ job 생성 (pending)   │
+│ ai_generation_pending│
+│ = true               │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│ 백그라운드 워커      │ ← 1초마다 폴링
+│ job 선택 (FOR UPDATE│
+│ SKIP LOCKED)        │
+│ status = processing │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│ OpenAI API 호출     │
+│ 질문 생성           │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│ job 완료 처리       │
+│ status = completed  │
+│ generated_question  │
+│ ai_generation_pending│
+│ = false             │
+└─────────────────────┘
+```
+
+### 6.3 워커 구현
+
+```typescript
+// backend/src/workers/aiGenerationWorker.ts
+
+class AIGenerationWorker {
+  private isRunning = false;
+
+  async start() {
+    this.isRunning = true;
+    while (this.isRunning) {
+      await this.processNextJob();
+      await sleep(1000); // 1초 대기
+    }
+  }
+
+  async processNextJob() {
+    // 트랜잭션으로 race condition 방지
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 대기 중인 작업 선택 (락 획득)
+      const job = await client.query(`
+        SELECT j.*, p.extracted_text, p.analyzed_topics
+        FROM ai_generation_jobs j
+        JOIN student_participants p ON j.participant_id = p.id
+        WHERE j.status = 'pending'
+        ORDER BY j.started_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `);
+
+      if (!job.rows[0]) {
+        await client.query('ROLLBACK');
+        return;
+      }
+
+      // 처리 중으로 상태 변경
+      await client.query(`
+        UPDATE ai_generation_jobs
+        SET status = 'processing'
+        WHERE id = $1
+      `, [job.rows[0].id]);
+
+      await client.query('COMMIT');
+
+      // AI 질문 생성 (트랜잭션 외부)
+      const question = await generateQuestion({
+        studentAnswer: job.rows[0].student_answer,
+        // ... 기타 파라미터
+      });
+
+      // 완료 처리
+      await pool.query(`
+        UPDATE ai_generation_jobs
+        SET status = 'completed',
+            generated_question = $1,
+            completed_at = NOW()
+        WHERE id = $2
+      `, [question, job.rows[0].id]);
+
+      // interview_states 업데이트
+      await pool.query(`
+        UPDATE interview_states
+        SET ai_generation_pending = false
+        WHERE participant_id = $1
+      `, [job.rows[0].participant_id]);
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      // 실패 처리
+      await pool.query(`
+        UPDATE ai_generation_jobs
+        SET status = 'failed',
+            error_message = $1,
+            completed_at = NOW()
+        WHERE id = $2
+      `, [error.message, job.rows[0].id]);
+    } finally {
+      client.release();
+    }
+  }
+}
+```
+
+---
+
+## 7. AI 생성 폴링 (useAIGenerationPolling)
+
+### 7.1 개요
+
+프론트엔드에서 AI 질문 생성 완료를 확인하기 위한 폴링 훅입니다.
+
+### 7.2 구현
+
+```typescript
+// frontend/hooks/useAIGenerationPolling.ts
+
+interface UseAIGenerationPollingProps {
+  enabled: boolean;
+  onQuestionReceived: (question: string) => void;
+  onError: (error: string) => void;
+}
+
+export function useAIGenerationPolling({
+  enabled,
+  onQuestionReceived,
+  onError
+}: UseAIGenerationPollingProps) {
+  const [isPending, setIsPending] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch('/api/interview/ai-status');
+        const data = await response.json();
+
+        setIsPending(data.pending);
+
+        if (!data.pending) {
+          if (data.question) {
+            onQuestionReceived(data.question);
+            clearInterval(pollInterval);
+          } else if (data.error) {
+            onError(data.error);
+            clearInterval(pollInterval);
+          }
+        }
+      } catch (error) {
+        console.error('AI status polling error:', error);
+      }
+    }, 1000);
+
+    return () => clearInterval(pollInterval);
+  }, [enabled, onQuestionReceived, onError]);
+
+  return { isPending };
+}
+```
+
+### 7.3 사용 예시
+
+```typescript
+// interview/page.tsx
+
+const { isPending } = useAIGenerationPolling({
+  enabled: aiGenerationPending,
+  onQuestionReceived: (question) => {
+    addMessage({ role: 'ai', content: question });
+    setCurrentQuestion(question);
+    setAiGenerationPending(false);
+  },
+  onError: (error) => {
+    setError(error);
+    setAiGenerationPending(false);
+  }
+});
+```
+
+---
+
+## 8. Turn State Guard
 
 ### 6.1 목적
 
@@ -680,7 +895,7 @@ const handleVoiceSubmit = async () => {
 
 ---
 
-## 7. 메시지 관리
+## 9. 메시지 관리
 
 ### 7.1 메시지 구조
 
@@ -763,7 +978,7 @@ useEffect(() => {
 
 ---
 
-## 8. 에러 처리
+## 10. 에러 처리
 
 ### 8.1 네트워크 에러
 
@@ -807,7 +1022,7 @@ if (!speechStatus.tts_available && isVoiceMode) {
 
 ---
 
-## 9. 성능 최적화
+## 11. 성능 최적화
 
 ### 9.1 메시지 가상화
 

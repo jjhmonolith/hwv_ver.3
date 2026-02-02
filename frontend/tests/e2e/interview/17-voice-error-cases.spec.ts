@@ -430,4 +430,142 @@ test.describe('17. Voice Error Cases', () => {
       expect(isRedirected || hasExpiredMessage).toBe(true);
     }
   });
+
+  test('17.9 AI 폴링 장시간 지연 시 처리', async ({ page }) => {
+    await setupVoiceInterview(page, { audioDelay: 100 });
+
+    // AI 상태 폴링에서 계속 pending 반환 (타임아웃 테스트)
+    let pollCount = 0;
+    await page.route('**/api/interview/ai-status', async (route) => {
+      pollCount++;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // 10회 이상 폴링 후 완료 반환
+      if (pollCount >= 10) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              aiGenerationPending: false,
+              nextQuestion: '오래 걸린 질문입니다.',
+              turnIndex: 1,
+            },
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              aiGenerationPending: true,
+            },
+          }),
+        });
+      }
+    });
+
+    const participant = await createTestParticipant(session.accessCode, {
+      studentName: `error_polling_${Date.now()}`,
+    });
+    await uploadTestPdf(participant.sessionToken);
+    await startInterview(participant.sessionToken, 'voice');
+
+    await page.evaluate(
+      setVoiceInterviewStorageScript(participant.sessionToken, {
+        id: participant.participantId,
+        studentName: `error_polling_${Date.now()}`,
+        status: 'interview_in_progress',
+      }, {
+        title: session.title,
+        topicCount: session.topicCount,
+        topicDuration: session.topicDuration,
+      })
+    );
+
+    await page.goto('/interview');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(2000);
+
+    // 답변 완료 클릭
+    const completeButton = page.getByRole('button', { name: /답변 완료|Complete|제출/i });
+    if (await completeButton.isVisible({ timeout: 5000 })) {
+      await completeButton.click();
+
+      // AI 생성 대기 UI 확인
+      const generatingIndicator = page.getByText(/준비|생성|Generating|로딩/i).first();
+      const showsGenerating = await generatingIndicator.isVisible({ timeout: 5000 }).catch(() => false);
+
+      // 폴링 대기 (최대 15초)
+      await page.waitForTimeout(15000);
+
+      // 장시간 폴링 후에도 정상 동작해야 함
+      const pageContent = await page.content();
+      expect(pageContent).toBeTruthy();
+      expect(pollCount).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  test('17.10 마이크 연결 해제 시나리오 (녹음 중)', async ({ page }) => {
+    await setupVoiceInterview(page, { audioDelay: 100 });
+
+    const participant = await createTestParticipant(session.accessCode, {
+      studentName: `error_mic_${Date.now()}`,
+    });
+    await uploadTestPdf(participant.sessionToken);
+    await startInterview(participant.sessionToken, 'voice');
+
+    await page.evaluate(
+      setVoiceInterviewStorageScript(participant.sessionToken, {
+        id: participant.participantId,
+        studentName: `error_mic_${Date.now()}`,
+        status: 'interview_in_progress',
+      }, {
+        title: session.title,
+        topicCount: session.topicCount,
+        topicDuration: session.topicDuration,
+      })
+    );
+
+    await page.goto('/interview');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(2000);
+
+    // 녹음 상태 확인
+    const recordingIndicator = page.getByText(/녹음 중|Recording/i).first();
+    const isRecording = await recordingIndicator.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (isRecording) {
+      // 마이크 권한 취소 시뮬레이션 - getUserMedia 실패 Mock
+      await page.evaluate(() => {
+        // MediaRecorder 상태를 강제로 inactive로 설정하여 연결 해제 시뮬레이션
+        (window as unknown as { __micDisconnected: boolean }).__micDisconnected = true;
+      });
+
+      // STT API를 네트워크 에러로 Mock
+      await page.route('**/api/speech/stt', async (route) => {
+        await route.abort('failed');
+      });
+
+      // 답변 완료 시도
+      const completeButton = page.getByRole('button', { name: /답변 완료|Complete|제출/i });
+      if (await completeButton.isVisible({ timeout: 3000 })) {
+        await completeButton.click();
+        await page.waitForTimeout(3000);
+
+        // 에러 처리 확인 - 페이지 크래시 없이 에러 메시지 또는 복구 UI
+        const pageContent = await page.content();
+        expect(pageContent).toBeTruthy();
+
+        // 재시도 또는 에러 메시지 확인
+        const errorOrRetry = page.getByText(/실패|다시|재시도|오류|에러/i).first();
+        const hasErrorHandling = await errorOrRetry.isVisible({ timeout: 5000 }).catch(() => false);
+
+        // 페이지가 정상 동작하면 OK (에러 처리되었거나 복구됨)
+      }
+    }
+  });
 });

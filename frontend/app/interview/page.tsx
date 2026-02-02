@@ -13,11 +13,15 @@ import { Timer } from '@/components/interview/Timer';
 import { TopicProgress } from '@/components/interview/TopicProgress';
 import { ChatInterface } from '@/components/interview/ChatInterface';
 import VoiceInterface from '@/components/interview/VoiceInterface';
+import VoiceInterviewPage from '@/components/interview/VoiceInterviewPage';
 
 /**
  * Main interview page - Chat and Voice mode
  * Handles the core interview flow with AI questions and student answers
  * Supports both text chat and voice-based interaction modes
+ *
+ * Voice mode uses new state machine based implementation (VoiceInterviewPage)
+ * Chat mode uses existing implementation
  */
 export default function InterviewPage() {
   const router = useRouter();
@@ -522,6 +526,11 @@ export default function InterviewPage() {
         </div>
       </div>
     );
+  }
+
+  // Voice mode: Use new state machine based implementation
+  if (isVoiceMode) {
+    return <VoiceInterviewPage onError={(err) => setError(err)} />;
   }
 
   return (

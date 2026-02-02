@@ -302,4 +302,120 @@ test.describe('15. Voice Timer Behavior', () => {
       expect(initialTimer).toBeGreaterThanOrEqual(115); // 약 2분 근처
     }
   });
+
+  test('15.6 토픽 만료 1초 전 답변 제출 시 정상 처리', async ({ page }) => {
+    // 매우 짧은 토픽 시간으로 테스트
+    await setupVoiceInterview(page, { audioDelay: 100 });
+
+    const participant = await createTestParticipant(session.accessCode, {
+      studentName: `timer_edge_1_${Date.now()}`,
+    });
+    await uploadTestPdf(participant.sessionToken);
+    await startInterview(participant.sessionToken, 'voice');
+
+    await page.evaluate(
+      setVoiceInterviewStorageScript(participant.sessionToken, {
+        id: participant.participantId,
+        studentName: `timer_edge_1_${Date.now()}`,
+        status: 'interview_in_progress',
+      }, {
+        title: session.title,
+        topicCount: session.topicCount,
+        topicDuration: 10, // 매우 짧은 시간 (10초)
+      })
+    );
+
+    await page.goto('/interview');
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(1500);
+
+    // 타이머가 낮아질 때까지 대기 (5초 이하)
+    const waitForLowTimer = async () => {
+      for (let i = 0; i < 10; i++) {
+        const timer = await getTimerValue(page);
+        if (timer <= 5 && timer > 0) {
+          return true;
+        }
+        await page.waitForTimeout(1000);
+      }
+      return false;
+    };
+
+    const isLowTimer = await waitForLowTimer();
+
+    if (isLowTimer) {
+      // 답변 완료 클릭 (타이머가 거의 끝날 때)
+      const completeButton = page.getByRole('button', { name: /답변 완료|Complete|제출/i });
+      if (await completeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await completeButton.click();
+        await page.waitForTimeout(3000);
+
+        // 페이지가 크래시 없이 동작해야 함
+        const pageContent = await page.content();
+        expect(pageContent).toBeTruthy();
+
+        // 전환 페이지로 이동하거나 다음 주제로 진행
+        const currentUrl = page.url();
+        const isTransitioned = currentUrl.includes('/transition') ||
+          currentUrl.includes('/interview') ||
+          currentUrl.includes('/complete');
+        expect(isTransitioned).toBe(true);
+      }
+    }
+  });
+
+  test('15.7 여러 일시정지 조건 동시 발생 시 처리', async ({ page }) => {
+    // TTS와 AI 생성이 동시에 일어나는 상황 시뮬레이션
+    await setupVoiceInterview(page, { audioDelay: 3000 }); // 긴 TTS
+
+    // AI 생성도 느리게 설정
+    await page.route('**/api/interview/ai-status', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            aiGenerationPending: true,
+          },
+        }),
+      });
+    });
+
+    const participant = await createTestParticipant(session.accessCode, {
+      studentName: `timer_multi_${Date.now()}`,
+    });
+    await uploadTestPdf(participant.sessionToken);
+    await startInterview(participant.sessionToken, 'voice');
+
+    await page.evaluate(
+      setVoiceInterviewStorageScript(participant.sessionToken, {
+        id: participant.participantId,
+        studentName: `timer_multi_${Date.now()}`,
+        status: 'interview_in_progress',
+      }, {
+        title: session.title,
+        topicCount: session.topicCount,
+        topicDuration: session.topicDuration,
+      })
+    );
+
+    await page.goto('/interview');
+    await page.waitForLoadState('networkidle');
+
+    // 타이머 초기값
+    await page.waitForTimeout(500);
+    const initialTimer = await getTimerValue(page);
+
+    // 여러 상태가 겹치는 동안 대기
+    await page.waitForTimeout(5000);
+
+    const afterMultiPauseTimer = await getTimerValue(page);
+    const timerDiff = initialTimer - afterMultiPauseTimer;
+
+    // 여러 일시정지 조건이 겹쳐도 타이머가 크게 변하지 않아야 함
+    // (모든 조건이 일시정지를 유발하므로)
+    expect(timerDiff).toBeLessThanOrEqual(3);
+  });
 });

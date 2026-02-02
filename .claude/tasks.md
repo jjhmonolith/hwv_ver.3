@@ -3,7 +3,7 @@
 ## Current Status
 - **Active Phase**: 프로젝트 완료
 - **Progress**: 8/8 Phases 완료 (100%)
-- **Last Updated**: 2026-01-28 19:00
+- **Last Updated**: 2026-01-31 10:00
 - **Test Status**: **154 passed, 1 skipped (99.3%)**
 
 ---
@@ -83,16 +83,16 @@
 | `frontend/tests/e2e/interview/20-reconnection-advanced.spec.ts` | E2E 테스트 (신규) | ✅ |
 
 ### 핵심 기능
-- **이탈 감지**: 15초 heartbeat 없음 → `interview_paused` 상태
-- **재접속 처리**: 30분 내 재접속 시 상태 복원, 시간 차감
+- **이탈 감지**: 15초 heartbeat 없음 → `disconnected_at` 타임스탬프 설정
+- **재접속 처리**: 30분 내 재접속 시 `disconnected_at` 클리어, 시간 차감
 - **주제 만료 처리**: 이탈 중 시간 만료 → `topic_expired_while_away`
 - **자동 abandoned**: 30분 초과 시 세션 만료
 
 ### 상태 전이
 ```
-interview_in_progress
-    ├─[15초 heartbeat 없음]─→ interview_paused
-    │     ├─[30분 내 재접속, 시간 남음]─→ interview_in_progress
+interview_in_progress (disconnected_at = NULL)
+    ├─[15초 heartbeat 없음]─→ disconnected_at 설정
+    │     ├─[30분 내 재접속, 시간 남음]─→ disconnected_at 클리어
     │     ├─[30분 내 재접속, 시간 만료]─→ topic_expired_while_away
     │     └─[30분 초과]─→ abandoned
     └─[confirm-transition]─→ 다음 주제 또는 completed
@@ -277,6 +277,14 @@ interview_in_progress
 
 | Date | Time | Phase | Action | Status |
 |------|------|-------|--------|--------|
+| 2026-01-31 | 10:00 | - | 주제 진행 상태 표시 버그 수정 | ✅ |
+| 2026-01-30 | 18:00 | - | 상태 관리 개편 (ENUM 단순화) | ✅ |
+| 2026-01-30 | 16:00 | - | 10초 자동 전환 제거, 수동 버튼 클릭 방식 변경 | ✅ |
+| 2026-01-30 | 14:00 | - | 폴링 시작 타이밍 문제 해결, 이전 질문 반환 버그 수정 | ✅ |
+| 2026-01-30 | 12:00 | - | 409 에러 시 AI 생성 폴링 상태 유지 | ✅ |
+| 2026-01-29 | 18:00 | - | AI 백그라운드 워커 도입 (aiGenerationWorker) | ✅ |
+| 2026-01-29 | 14:00 | - | 타이머 동기화 개선 (accumulated_pause_time) | ✅ |
+| 2026-01-29 | 10:00 | - | UX 개선 - 학생 인터뷰 시작 시 주제 숨김 | ✅ |
 | 2026-01-28 | 19:00 | 6 | **Phase 6 완료** - 교사 모니터링 기능 구현, 프로젝트 100% 완성 | ✅ |
 | 2026-01-28 | 18:30 | 6 | E2E 테스트 작성 - 10개 테스트 케이스 | ✅ |
 | 2026-01-28 | 18:00 | 6 | 세션 상세 페이지에 ParticipantDetail 패널 통합 | ✅ |
@@ -409,4 +417,4 @@ interview_in_progress
 
 ---
 
-마지막 업데이트: 2026-01-28 15:00
+마지막 업데이트: 2026-01-31 10:00

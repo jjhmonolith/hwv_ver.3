@@ -75,17 +75,19 @@
 
 ---
 
-### Phase 4: 인터뷰 핵심 (예상 파일 5개)
+### Phase 4: 인터뷰 핵심 (예상 파일 7개)
 
-**목표:** 인터뷰 진행, 채팅/음성 모드, 타이머
+**목표:** 인터뷰 진행, 채팅/음성 모드, 타이머, 비동기 AI 생성
 
 | 순서 | 작업 | 파일 |
 |------|------|------|
 | 4-1 | 인터뷰 API | `backend/routes/interview.js` |
 | 4-2 | LLM 서비스 | `backend/services/llm.js` |
-| 4-3 | 음성 서비스 | `backend/services/speech.js`, `backend/routes/speech.js` |
-| 4-4 | useSpeech 훅 | `frontend/hooks/useSpeech.ts` |
-| 4-5 | 인터뷰 페이지 | `frontend/app/interview/page.tsx` |
+| 4-3 | AI 생성 워커 | `backend/workers/aiGenerationWorker.js` |
+| 4-4 | 음성 서비스 | `backend/services/speech.js`, `backend/routes/speech.js` |
+| 4-5 | useSpeech 훅 | `frontend/hooks/useSpeech.ts` |
+| 4-6 | AI 생성 폴링 훅 | `frontend/hooks/useAIGenerationPolling.ts` |
+| 4-7 | 인터뷰 페이지 | `frontend/app/interview/page.tsx` |
 
 **체크리스트:**
 - [ ] 인터뷰 시작 및 첫 질문 생성
@@ -94,6 +96,8 @@
 - [ ] Activity-based 타이머 동작
 - [ ] 주제 시간 만료 처리
 - [ ] 대화 기록 저장
+- [ ] 백그라운드 AI 질문 생성 (워커)
+- [ ] AI 생성 상태 폴링
 
 ---
 
@@ -138,7 +142,7 @@
 
 ## 2. 핵심 파일 목록
 
-### Backend (17개 파일)
+### Backend (18개 파일)
 
 ```
 backend/
@@ -167,10 +171,11 @@ backend/
 │   └── speech.js                     # TTS/STT
 │
 └── workers/
-    └── disconnectChecker.js          # 이탈 감지 워커
+    ├── disconnectChecker.js          # 이탈 감지 워커
+    └── aiGenerationWorker.js         # 백그라운드 AI 질문 생성
 ```
 
-### Frontend (20개 파일)
+### Frontend (21개 파일)
 
 ```
 frontend/
@@ -210,7 +215,8 @@ frontend/
 │       └── ConversationView.tsx
 │
 ├── hooks/
-│   └── useSpeech.ts                  # TTS/STT 훅
+│   ├── useSpeech.ts                  # TTS/STT 훅
+│   └── useAIGenerationPolling.ts     # AI 생성 완료 폴링
 │
 ├── lib/
 │   ├── api.ts                        # API 클라이언트
