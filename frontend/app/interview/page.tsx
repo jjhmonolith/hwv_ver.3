@@ -78,19 +78,6 @@ export default function InterviewPage() {
   // Server-calculated remaining time (for reconnection/refresh)
   const serverTimeLeft = currentTopic?.timeLeft;
 
-  const {
-    timeLeft,
-    setTimeLeft,
-    setIsTyping,
-    setAiGenerating: setTimerAiGenerating,
-    isPaused,
-  } = useInterviewTimer({
-    totalTime,
-    initialTimeLeft: serverTimeLeft,
-    onTimeUp: handleTimeUp,
-    isTopicStarted: isTopicEffectivelyStarted,
-  });
-
   // Build context for STT (Speech-to-Text) - provides AI with conversation history
   const buildContext = useCallback(() => {
     const recentMessages = messages.slice(-4);
@@ -113,7 +100,7 @@ export default function InterviewPage() {
     setTtsFailed(true);
   }, []);
 
-  // Speech hook (TTS + STT)
+  // Speech hook (TTS + STT) - must be before useInterviewTimer to provide isSpeaking, isListening, isTranscribing
   const {
     isSpeaking,
     speak,
@@ -131,6 +118,26 @@ export default function InterviewPage() {
   useEffect(() => {
     startListeningRef.current = startListening;
   }, [startListening]);
+
+  // Interview timer hook
+  // Voice mode: Timer ONLY runs when microphone is actively recording (isListening)
+  // Chat mode: Timer runs when topic started, pauses during AI generation
+  const {
+    timeLeft,
+    setTimeLeft,
+    setIsTyping,
+    setAiGenerating: setTimerAiGenerating,
+    isPaused,
+  } = useInterviewTimer({
+    totalTime,
+    initialTimeLeft: serverTimeLeft,
+    onTimeUp: handleTimeUp,
+    isTopicStarted: isTopicEffectivelyStarted,
+    isSpeaking,
+    isTranscribing,
+    isListening,
+    isVoiceMode,
+  });
 
   // Heartbeat hook - now always enabled as server accounts for pause time
   useHeartbeat({

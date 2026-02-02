@@ -20,6 +20,7 @@ interface PendingJob {
 interface ParticipantData {
   extracted_text: string;
   analyzed_topics: string | Topic[];
+  chosen_interview_mode: 'voice' | 'chat' | null;
 }
 
 interface ConversationRow {
@@ -61,7 +62,7 @@ async function processPendingJobs(): Promise<void> {
     try {
       // Get context for question generation
       const contextResult = await query<ParticipantData>(
-        `SELECT sp.extracted_text, sp.analyzed_topics
+        `SELECT sp.extracted_text, sp.analyzed_topics, sp.chosen_interview_mode
          FROM student_participants sp
          WHERE sp.id = $1`,
         [job.participant_id]
@@ -71,7 +72,7 @@ async function processPendingJobs(): Promise<void> {
         throw new Error('Participant not found');
       }
 
-      const { extracted_text, analyzed_topics } = contextResult.rows[0];
+      const { extracted_text, analyzed_topics, chosen_interview_mode } = contextResult.rows[0];
       const topics: Topic[] =
         typeof analyzed_topics === 'string'
           ? JSON.parse(analyzed_topics)
@@ -108,13 +109,14 @@ async function processPendingJobs(): Promise<void> {
       }));
 
       // Generate question
-      console.log(`[AIWorker] Generating question for topic: ${currentTopic.title}`);
+      console.log(`[AIWorker] Generating question for topic: ${currentTopic.title}, mode: ${chosen_interview_mode || 'chat'}`);
       const nextQuestion = await generateQuestion({
         topic: currentTopic,
         assignmentText: extracted_text,
         previousConversation: prevConversations,
         assignmentInfo,
         topicDuration,
+        interviewMode: (chosen_interview_mode as 'voice' | 'chat') || 'chat',
       });
 
       console.log(`[AIWorker] Generated question: ${nextQuestion.substring(0, 50)}...`);

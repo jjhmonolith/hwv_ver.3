@@ -399,6 +399,7 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
         topic: analyzedTopics[0],
         assignmentText: data.extracted_text,
         previousConversation: [],
+        interviewMode: selectedMode as 'voice' | 'chat',
       });
     } catch (error) {
       console.error('Failed to generate first question:', error);
@@ -833,7 +834,7 @@ router.post('/next-topic', async (req: Request, res: Response): Promise<void> =>
     // Get current state
     const stateResult = await query(
       `SELECT
-        sp.extracted_text, sp.analyzed_topics,
+        sp.extracted_text, sp.analyzed_topics, sp.chosen_interview_mode,
         ist.current_topic_index, ist.topics_state,
         s.topic_duration
        FROM student_participants sp
@@ -889,6 +890,7 @@ router.post('/next-topic', async (req: Request, res: Response): Promise<void> =>
         topic: analyzedTopics[nextTopicIndex],
         assignmentText: state.extracted_text,
         previousConversation: [],
+        interviewMode: (state.chosen_interview_mode as 'voice' | 'chat') || 'chat',
       });
     } catch (error) {
       console.error('Failed to generate first question for new topic:', error);
@@ -1019,7 +1021,7 @@ router.post('/confirm-transition', async (req: Request, res: Response): Promise<
     // Get current state
     const stateResult = await query(
       `SELECT
-        sp.extracted_text, sp.analyzed_topics,
+        sp.extracted_text, sp.analyzed_topics, sp.chosen_interview_mode,
         ist.current_topic_index, ist.current_phase, ist.topics_state,
         s.topic_duration
        FROM student_participants sp
@@ -1103,6 +1105,7 @@ router.post('/confirm-transition', async (req: Request, res: Response): Promise<
         topic: analyzedTopics[nextTopicIndex],
         assignmentText: state.extracted_text,
         previousConversation: [],
+        interviewMode: (state.chosen_interview_mode as 'voice' | 'chat') || 'chat',
       });
     } catch (error) {
       console.error('Failed to generate first question for new topic:', error);

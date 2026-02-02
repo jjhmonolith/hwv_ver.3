@@ -49,6 +49,7 @@ export interface QuestionContext {
   }>;
   assignmentInfo?: string;
   topicDuration?: number;
+  interviewMode?: 'voice' | 'chat';
 }
 
 /**
@@ -156,7 +157,26 @@ export async function generateQuestion(
     ? `\n\nAssignment Context: ${context.assignmentInfo}\nFocus questions on the core objectives mentioned in this context.`
     : '';
 
-  const instructions = `You are conducting an oral interview to verify a student's authorship of their homework.
+  // Voice mode: short, conversational questions for spoken delivery
+  const voiceModeInstructions = `You are conducting an oral interview to verify a student's authorship of their homework.
+
+Current topic: ${context.topic.title}
+Topic description: ${context.topic.description}${assignmentContext}
+
+CRITICAL Guidelines for VOICE mode:
+1. Keep questions SHORT (1-2 sentences maximum) - this will be spoken aloud
+2. Use conversational, natural Korean - avoid formal written style
+3. NEVER use numbered lists, bullet points, or structured formatting
+4. Ask ONE focused question at a time, not multiple questions
+5. Use spoken language patterns naturally (e.g., "그럼", "그래서", "음")
+6. Questions should be in Korean
+7. Build on previous answers if available${complexityGuideline}
+
+Example good question: "이 부분을 어떻게 생각해서 이렇게 작성하셨어요?"
+Example bad question: "다음 세 가지에 대해 답해주세요: 1. 첫 번째..."`;
+
+  // Chat mode: standard interview questions (existing style)
+  const chatModeInstructions = `You are conducting an oral interview to verify a student's authorship of their homework.
 Your goal is to ask probing questions that reveal whether the student truly understands and wrote the content.
 
 Current topic: ${context.topic.title}
@@ -169,12 +189,21 @@ Guidelines:
 4. Questions should be in Korean
 5. Keep questions concise and clear${complexityGuideline}`;
 
+  // Select instructions based on interview mode
+  const instructions = context.interviewMode === 'voice'
+    ? voiceModeInstructions
+    : chatModeInstructions;
+
   const input = conversationHistory
     ? `이전 대화:\n${conversationHistory}\n\n다음 질문을 생성해주세요.`
     : `과제 내용:\n${context.assignmentText.slice(0, 5000)}\n\n이 주제에 대한 첫 번째 질문을 생성해주세요.`;
 
-  // Dynamic token limit based on duration
-  const maxTokens = duration >= 300 ? 1000 : duration >= 180 ? 800 : 500;
+  // Dynamic token limit based on duration and mode
+  // Voice mode needs shorter responses for better listening experience
+  const baseTokens = duration >= 300 ? 1000 : duration >= 180 ? 800 : 500;
+  const maxTokens = context.interviewMode === 'voice'
+    ? Math.min(baseTokens, 300)  // Voice mode: cap at 300 tokens for shorter questions
+    : baseTokens;
 
   try {
     const client = getOpenAIClient();
