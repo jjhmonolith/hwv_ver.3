@@ -608,6 +608,15 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
       const effectiveElapsed = Math.max(0, elapsedSeconds - totalPauseTime);
       remainingTime = Math.max(0, (currentTopic?.totalTime || 180) - effectiveElapsed);
       timeExpired = remainingTime === 0;
+
+      // Safety net: Auto-transition if time expired but still in topic_active
+      if (timeExpired) {
+        console.log(`[heartbeat] Time expired, auto-transitioning participant: ${req.participant.id}`);
+        await query(
+          `UPDATE interview_states SET current_phase = 'topic_transition' WHERE participant_id = $1`,
+          [req.participant.id]
+        );
+      }
     }
 
     // Check if should show transition page

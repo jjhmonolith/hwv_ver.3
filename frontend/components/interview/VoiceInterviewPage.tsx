@@ -61,8 +61,14 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
     onStateChange: (prevState, newState) => {
       console.log(`[VoiceInterview] State: ${prevState} → ${newState}`);
     },
-    onTimerExpired: () => {
+    onTimerExpired: async () => {
       console.log('[VoiceInterview] Timer expired, transitioning');
+      try {
+        // 서버에 타이머 만료 알림 - current_phase를 topic_transition으로 변경
+        await api.interview.topicTimeout(sessionToken!);
+      } catch (err) {
+        console.error('[VoiceInterview] Failed to notify topic timeout:', err);
+      }
       router.push('/interview/transition');
     },
     onTransitionRequired: () => {

@@ -185,7 +185,7 @@ export function useVoiceStateMachine(
       // TTS 재생
       try {
         ttsServiceRef.current?.setCallbacks({
-          onEnd: () => dispatch({ type: 'TTS_ENDED' }),
+          onEnd: () => handleTTSEnd(),
           onError: (error) => dispatch({ type: 'TTS_FAILED', error: error.message }),
         });
 
@@ -194,7 +194,7 @@ export function useVoiceStateMachine(
         dispatch({ type: 'TTS_FAILED', error: (error as Error).message });
       }
     },
-    []
+    [handleTTSEnd]
   );
 
   /**
