@@ -332,6 +332,12 @@ export const api = {
         method: 'POST',
         headers: { 'X-Session-Token': sessionToken },
       }),
+    pauseEvent: (sessionToken: string, eventType: 'tts_start' | 'tts_end' | 'stt_start' | 'stt_end') =>
+      request<{ success: boolean }>('/api/interview/pause-event', {
+        method: 'POST',
+        body: { eventType },
+        headers: { 'X-Session-Token': sessionToken },
+      }),
   },
 };
 

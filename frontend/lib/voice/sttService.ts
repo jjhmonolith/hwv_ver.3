@@ -63,11 +63,12 @@ export class STTService {
 
   /**
    * 녹음 시작
+   * @returns 녹음 시작 성공 여부
    */
-  async startRecording(context = ''): Promise<void> {
+  async startRecording(context = ''): Promise<boolean> {
     if (this._state !== 'idle') {
       console.warn('STTService: Already recording or transcribing');
-      return;
+      return false;
     }
 
     this.context = context;
@@ -95,6 +96,7 @@ export class STTService {
       mediaRecorder.start(1000); // 1초마다 데이터 수집
       this._state = 'recording';
       this.callbacks.onRecordingStart?.();
+      return true;
     } catch (error) {
       console.error('Microphone access error:', error);
       this._state = 'idle';

@@ -642,6 +642,52 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
 });
 
 /**
+ * POST /api/interview/pause-event
+ * Record TTS/STT pause events for accurate timer calculation
+ * eventType: 'tts_start' | 'tts_end' | 'stt_start' | 'stt_end'
+ */
+router.post('/pause-event', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.participant) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    const { eventType } = req.body;
+
+    if (!eventType || !['tts_start', 'tts_end', 'stt_start', 'stt_end'].includes(eventType)) {
+      res.status(400).json({ success: false, error: 'Invalid event type' });
+      return;
+    }
+
+    if (eventType.endsWith('_start')) {
+      // Start pause: record the current time
+      await query(
+        `UPDATE interview_states
+         SET pause_started_at = NOW()
+         WHERE participant_id = $1 AND pause_started_at IS NULL`,
+        [req.participant.id]
+      );
+    } else if (eventType.endsWith('_end')) {
+      // End pause: accumulate the pause time
+      await query(
+        `UPDATE interview_states
+         SET accumulated_pause_time = accumulated_pause_time +
+             COALESCE(EXTRACT(EPOCH FROM NOW() - pause_started_at)::integer, 0),
+             pause_started_at = NULL
+         WHERE participant_id = $1`,
+        [req.participant.id]
+      );
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Pause event error:', error);
+    res.status(500).json({ success: false, error: 'Failed to process pause event' });
+  }
+});
+
+/**
  * POST /api/interview/answer
  * Submit student answer and queue AI question generation (non-blocking)
  * Returns 202 Accepted immediately - frontend should poll /ai-status for completion

@@ -152,6 +152,7 @@ CREATE TABLE interview_states (
     ai_generation_pending BOOLEAN DEFAULT FALSE,
     ai_generation_started_at TIMESTAMP WITH TIME ZONE,
     accumulated_pause_time INTEGER DEFAULT 0,  -- Total pause time in seconds
+    pause_started_at TIMESTAMP WITH TIME ZONE,  -- Current pause start time (for TTS/STT)
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

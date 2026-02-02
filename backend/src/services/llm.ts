@@ -175,19 +175,22 @@ CRITICAL Guidelines for VOICE mode:
 Example good question: "이 부분을 어떻게 생각해서 이렇게 작성하셨어요?"
 Example bad question: "다음 세 가지에 대해 답해주세요: 1. 첫 번째..."`;
 
-  // Chat mode: standard interview questions (existing style)
+  // Chat mode: similar to voice mode with short, conversational questions
   const chatModeInstructions = `You are conducting an oral interview to verify a student's authorship of their homework.
-Your goal is to ask probing questions that reveal whether the student truly understands and wrote the content.
 
 Current topic: ${context.topic.title}
 Topic description: ${context.topic.description}${assignmentContext}
 
-Guidelines:
-1. Ask open-ended questions that require understanding, not memorization
-2. Build on previous answers if available
-3. Be conversational but focused
-4. Questions should be in Korean
-5. Keep questions concise and clear${complexityGuideline}`;
+CRITICAL Guidelines for CHAT mode:
+1. Keep questions SHORT (2-3 sentences maximum)
+2. Use conversational, natural Korean
+3. NEVER use numbered lists, bullet points, or structured formatting
+4. Ask ONE focused question at a time, not multiple questions
+5. Questions should be in Korean
+6. Build on previous answers if available${complexityGuideline}
+
+Example good question: "이 부분을 어떻게 생각해서 이렇게 작성하셨어요?"
+Example bad question: "다음 세 가지에 대해 답해주세요: 1. 첫 번째..."`;
 
   // Select instructions based on interview mode
   const instructions = context.interviewMode === 'voice'

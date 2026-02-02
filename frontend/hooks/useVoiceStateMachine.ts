@@ -22,8 +22,7 @@ import {
   VoiceServerState,
 } from '@/lib/voice';
 import { TTSService, STTService } from '@/lib/voice';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4010';
+import { api } from '@/lib/api';
 
 // ==========================================
 // Types
@@ -92,6 +91,7 @@ export function useVoiceStateMachine(
   const sttServiceRef = useRef<STTService | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const prevStateRef = useRef<VoiceState>(state.currentState);
+  const sessionTokenRef = useRef<string | null>(sessionToken);
 
   // Initialize services
   useEffect(() => {
@@ -106,6 +106,7 @@ export function useVoiceStateMachine(
 
   // Update session token
   useEffect(() => {
+    sessionTokenRef.current = sessionToken;
     ttsServiceRef.current?.setSessionToken(sessionToken);
     sttServiceRef.current?.setSessionToken(sessionToken);
   }, [sessionToken]);
@@ -170,6 +171,38 @@ export function useVoiceStateMachine(
   // ==========================================
 
   /**
+   * TTS 종료 처리 (handleTTSEnd를 먼저 선언해야 start에서 사용 가능)
+   */
+  const handleTTSEnd = useCallback(async () => {
+    // TTS 종료 → 서버에 pause 종료 알림
+    if (sessionTokenRef.current) {
+      api.interview.pauseEvent(sessionTokenRef.current, 'tts_end').catch((err) => {
+        console.warn('[handleTTSEnd] Failed to send tts_end event:', err);
+      });
+    }
+
+    dispatch({ type: 'TTS_ENDED' });
+
+    // 자동으로 녹음 시작
+    try {
+      sttServiceRef.current?.setCallbacks({
+        onVolumeChange: (level) => dispatch({ type: 'UPDATE_VOLUME', level }),
+        onError: (error) => dispatch({ type: 'STT_FAILED', error: error.message }),
+      });
+
+      const success = await sttServiceRef.current?.startRecording();
+      if (!success) {
+        console.warn('[handleTTSEnd] Failed to start recording, STT service may not be in idle state');
+        // 이전 상태 정리 후 재시도
+        sttServiceRef.current?.cancel();
+        await sttServiceRef.current?.startRecording();
+      }
+    } catch (error) {
+      options.onError?.(error as Error);
+    }
+  }, [options]);
+
+  /**
    * 인터뷰 시작 (첫 질문 TTS 재생)
    */
   const start = useCallback(
@@ -185,6 +218,14 @@ export function useVoiceStateMachine(
       // TTS 재생
       try {
         ttsServiceRef.current?.setCallbacks({
+          onStart: () => {
+            // TTS 시작 → 서버에 pause 시작 알림
+            if (sessionTokenRef.current) {
+              api.interview.pauseEvent(sessionTokenRef.current, 'tts_start').catch((err) => {
+                console.warn('[start] Failed to send tts_start event:', err);
+              });
+            }
+          },
           onEnd: () => handleTTSEnd(),
           onError: (error) => dispatch({ type: 'TTS_FAILED', error: error.message }),
         });
@@ -224,8 +265,22 @@ export function useVoiceStateMachine(
 
     dispatch({ type: 'COMPLETE_ANSWER' });
 
+    // STT 처리 시작 → 서버에 pause 시작 알림
+    if (sessionTokenRef.current) {
+      api.interview.pauseEvent(sessionTokenRef.current, 'stt_start').catch((err) => {
+        console.warn('[completeAnswer] Failed to send stt_start event:', err);
+      });
+    }
+
     try {
       const text = await sttServiceRef.current?.stopRecording();
+
+      // STT 처리 완료 → 서버에 pause 종료 알림
+      if (sessionTokenRef.current) {
+        api.interview.pauseEvent(sessionTokenRef.current, 'stt_end').catch((err) => {
+          console.warn('[completeAnswer] Failed to send stt_end event:', err);
+        });
+      }
 
       if (!text || text.trim() === '') {
         dispatch({ type: 'STT_EMPTY' });
@@ -237,6 +292,10 @@ export function useVoiceStateMachine(
       dispatch({ type: 'STT_SUCCESS', text });
       return text;
     } catch (error) {
+      // 에러 발생 시에도 stt_end 전송
+      if (sessionTokenRef.current) {
+        api.interview.pauseEvent(sessionTokenRef.current, 'stt_end').catch(() => {});
+      }
       dispatch({ type: 'STT_FAILED', error: (error as Error).message });
       throw error;
     }
@@ -251,36 +310,25 @@ export function useVoiceStateMachine(
     }
 
     try {
+      // 이전 상태 정리 후 녹음 시작
+      sttServiceRef.current?.cancel();
+
       sttServiceRef.current?.setCallbacks({
         onVolumeChange: (level) => dispatch({ type: 'UPDATE_VOLUME', level }),
         onError: (error) => dispatch({ type: 'STT_FAILED', error: error.message }),
       });
 
-      await sttServiceRef.current?.startRecording();
-      dispatch({ type: 'START_MIC' });
+      const success = await sttServiceRef.current?.startRecording();
+      if (success) {
+        dispatch({ type: 'START_MIC' });
+      } else {
+        console.warn('[startMic] Failed to start recording');
+        options.onError?.(new Error('마이크 시작에 실패했습니다. 다시 시도해주세요.'));
+      }
     } catch (error) {
       options.onError?.(error as Error);
     }
   }, [state.currentState, options]);
-
-  /**
-   * TTS 종료 처리
-   */
-  const handleTTSEnd = useCallback(async () => {
-    dispatch({ type: 'TTS_ENDED' });
-
-    // 자동으로 녹음 시작
-    try {
-      sttServiceRef.current?.setCallbacks({
-        onVolumeChange: (level) => dispatch({ type: 'UPDATE_VOLUME', level }),
-        onError: (error) => dispatch({ type: 'STT_FAILED', error: error.message }),
-      });
-
-      await sttServiceRef.current?.startRecording();
-    } catch (error) {
-      options.onError?.(error as Error);
-    }
-  }, [options]);
 
   /**
    * AI 질문 준비 완료
@@ -292,6 +340,14 @@ export function useVoiceStateMachine(
       // TTS 재생
       try {
         ttsServiceRef.current?.setCallbacks({
+          onStart: () => {
+            // TTS 시작 → 서버에 pause 시작 알림
+            if (sessionTokenRef.current) {
+              api.interview.pauseEvent(sessionTokenRef.current, 'tts_start').catch((err) => {
+                console.warn('[handleAIReady] Failed to send tts_start event:', err);
+              });
+            }
+          },
           onEnd: () => handleTTSEnd(),
           onError: (error) => dispatch({ type: 'TTS_FAILED', error: error.message }),
         });
@@ -319,6 +375,14 @@ export function useVoiceStateMachine(
       // TTS 재생
       try {
         ttsServiceRef.current?.setCallbacks({
+          onStart: () => {
+            // TTS 시작 → 서버에 pause 시작 알림
+            if (sessionTokenRef.current) {
+              api.interview.pauseEvent(sessionTokenRef.current, 'tts_start').catch((err) => {
+                console.warn('[handleNextTopic] Failed to send tts_start event:', err);
+              });
+            }
+          },
           onEnd: () => handleTTSEnd(),
           onError: (error) => dispatch({ type: 'TTS_FAILED', error: error.message }),
         });
