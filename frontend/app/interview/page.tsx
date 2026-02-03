@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStudentStore, Message } from '@/lib/store';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useInterviewTimer } from '@/hooks/useInterviewTimer';
 import { useHeartbeat } from '@/hooks/useHeartbeat';
 import { useSpeech } from '@/hooks/useSpeech';
@@ -330,7 +330,17 @@ export default function InterviewPage() {
         }
       } catch (err) {
         console.error('Failed to initialize interview:', err);
-        setError('인터뷰 상태를 불러오는데 실패했습니다.');
+
+        // Handle session expired (403)
+        if (err instanceof ApiError && err.status === 403) {
+          setError('세션이 만료되었습니다. 30분 이상 이탈로 인해 인터뷰가 종료되었습니다.');
+          setTimeout(() => {
+            useStudentStore.getState().clearSession();
+            router.push('/join');
+          }, 3000);
+        } else {
+          setError('인터뷰 상태를 불러오는데 실패했습니다.');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -436,11 +446,19 @@ export default function InterviewPage() {
     } catch (err) {
       console.error('Failed to submit answer:', err);
 
+      // Handle session expired (403)
+      if (err instanceof ApiError && err.status === 403) {
+        setError('세션이 만료되었습니다. 30분 이상 이탈로 인해 인터뷰가 종료되었습니다.');
+        setTimeout(() => {
+          useStudentStore.getState().clearSession();
+          router.push('/join');
+        }, 3000);
+        return;
+      }
+
       // Check if it's a 409 error (AI generation already in progress)
       const isAiGenerationInProgress =
-        err instanceof Error &&
-        'status' in err &&
-        (err as { status: number }).status === 409;
+        err instanceof ApiError && err.status === 409;
 
       if (isAiGenerationInProgress) {
         // AI is already generating - keep polling state active

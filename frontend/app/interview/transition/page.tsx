@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStudentStore } from '@/lib/store';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 
 /**
  * Topic transition page
@@ -149,7 +149,18 @@ export default function TransitionPage() {
       }
     } catch (err) {
       console.error('Failed to proceed:', err);
-      setError('다음 단계로 진행하는데 실패했습니다.');
+
+      // Handle session expired (403)
+      if (err instanceof ApiError && err.status === 403) {
+        setError('세션이 만료되었습니다. 30분 이상 이탈로 인해 인터뷰가 종료되었습니다.');
+        // Clear session and redirect to join page after delay
+        setTimeout(() => {
+          useStudentStore.getState().clearSession();
+          router.push('/join');
+        }, 3000);
+      } else {
+        setError('다음 단계로 진행하는데 실패했습니다.');
+      }
       setIsLoading(false);
     }
   };

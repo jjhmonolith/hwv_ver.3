@@ -342,6 +342,7 @@ export default function StartPage() {
               <ul className="list-disc list-inside space-y-1 text-amber-700">
                 <li>인터뷰 중에는 브라우저를 닫지 마세요</li>
                 <li>각 주제별로 시간 제한이 있습니다</li>
+                <li className="text-red-600 font-medium">30분 이상 이탈 시 세션이 만료되어 인터뷰가 종료됩니다</li>
                 {selectedMode === 'voice' && (
                   <li>조용한 환경에서 마이크를 준비해주세요</li>
                 )}
