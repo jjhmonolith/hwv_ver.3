@@ -61,21 +61,33 @@ export function useInterviewTimer({
     onTimeUpRef.current = onTimeUp;
   }, [onTimeUp]);
 
-  // Sync with server time when initialTimeLeft changes (reconnection/refresh)
-  useEffect(() => {
-    if (initialTimeLeft !== undefined) {
-      setTimeLeft(initialTimeLeft);
-    }
-  }, [initialTimeLeft]);
+  // Track if we just changed topics to avoid race conditions with server sync
+  const justChangedTopicRef = useRef(false);
 
   // Reset timer when switching to a NEW topic (detected by topic index change)
   useEffect(() => {
     if (currentTopicIndex !== prevTopicIndexRef.current) {
-      // Topic changed - reset to server time or full time
-      setTimeLeft(initialTimeLeft ?? totalTime);
+      // Topic changed - always reset to full time for new topics
+      // Server time sync will happen via heartbeat if needed
+      setTimeLeft(totalTime);
       prevTopicIndexRef.current = currentTopicIndex;
+      justChangedTopicRef.current = true;
+
+      // Clear the flag after a short delay to allow server sync
+      const timer = setTimeout(() => {
+        justChangedTopicRef.current = false;
+      }, 2000);
+      return () => clearTimeout(timer);
     }
-  }, [currentTopicIndex, initialTimeLeft, totalTime]);
+  }, [currentTopicIndex, totalTime]);
+
+  // Sync with server time when initialTimeLeft changes (reconnection/refresh)
+  // Skip sync right after topic change to avoid using stale values
+  useEffect(() => {
+    if (initialTimeLeft !== undefined && !justChangedTopicRef.current) {
+      setTimeLeft(initialTimeLeft);
+    }
+  }, [initialTimeLeft]);
 
   // Timer logic:
   // Voice mode: Timer ONLY runs when microphone is actively recording (isListening)

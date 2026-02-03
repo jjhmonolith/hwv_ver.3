@@ -76,11 +76,13 @@ export default function InterviewPage() {
 
   // Timer should start when AI's first question is displayed
   // We check if there are any messages for the current topic (AI question exists)
+  // IMPORTANT: Don't start timer until initialization is complete to avoid stale values
   const hasAiQuestion = messages.length > 0 && messages.some(m => m.role === 'ai');
-  const isTopicEffectivelyStarted = currentTopic?.started || hasAiQuestion;
+  const isTopicEffectivelyStarted = !isLoading && (currentTopic?.started || hasAiQuestion);
 
   // Server-calculated remaining time (for reconnection/refresh)
-  const serverTimeLeft = currentTopic?.timeLeft;
+  // Don't use stale values during loading - wait for server response
+  const serverTimeLeft = isLoading ? undefined : currentTopic?.timeLeft;
 
   // Build context for STT (Speech-to-Text) - provides AI with conversation history
   const buildContext = useCallback(() => {
