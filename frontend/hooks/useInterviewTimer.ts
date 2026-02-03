@@ -8,6 +8,8 @@ interface UseInterviewTimerProps {
   initialTimeLeft?: number;
   onTimeUp: () => void;
   isTopicStarted: boolean;
+  /** Current topic index - used to detect topic changes */
+  currentTopicIndex: number;
   /** Voice mode: AI is speaking (TTS playing) */
   isSpeaking?: boolean;
   /** Voice mode: Speech-to-text transcription in progress */
@@ -40,6 +42,7 @@ export function useInterviewTimer({
   initialTimeLeft,
   onTimeUp,
   isTopicStarted,
+  currentTopicIndex,
   isSpeaking = false,
   isTranscribing = false,
   isListening = false,
@@ -50,8 +53,8 @@ export function useInterviewTimer({
   const [isTyping, setIsTyping] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const onTimeUpRef = useRef(onTimeUp);
-  // Track current topic's totalTime to detect topic changes
-  const prevTotalTimeRef = useRef(totalTime);
+  // Track topic index to detect topic changes (more reliable than totalTime)
+  const prevTopicIndexRef = useRef(currentTopicIndex);
 
   // Keep onTimeUp ref updated
   useEffect(() => {
@@ -65,16 +68,14 @@ export function useInterviewTimer({
     }
   }, [initialTimeLeft]);
 
-  // Reset timer only when switching to a NEW topic (totalTime changes to a different value)
+  // Reset timer when switching to a NEW topic (detected by topic index change)
   useEffect(() => {
-    if (totalTime !== prevTotalTimeRef.current) {
-      // Topic changed - reset to full time (initialTimeLeft will be undefined for new topics)
-      if (initialTimeLeft === undefined) {
-        setTimeLeft(totalTime);
-      }
-      prevTotalTimeRef.current = totalTime;
+    if (currentTopicIndex !== prevTopicIndexRef.current) {
+      // Topic changed - reset to server time or full time
+      setTimeLeft(initialTimeLeft ?? totalTime);
+      prevTopicIndexRef.current = currentTopicIndex;
     }
-  }, [totalTime, initialTimeLeft]);
+  }, [currentTopicIndex, initialTimeLeft, totalTime]);
 
   // Timer logic:
   // Voice mode: Timer ONLY runs when microphone is actively recording (isListening)

@@ -195,9 +195,15 @@ export function useVoiceStateMachine(
         console.warn('[handleTTSEnd] Failed to start recording, STT service may not be in idle state');
         // 이전 상태 정리 후 재시도
         sttServiceRef.current?.cancel();
-        await sttServiceRef.current?.startRecording();
+        const retrySuccess = await sttServiceRef.current?.startRecording();
+        if (!retrySuccess) {
+          console.error('[handleTTSEnd] Recording failed after retry');
+          dispatch({ type: 'STT_FAILED', error: 'Failed to start recording after retry' });
+          options.onError?.(new Error('마이크 녹음을 시작할 수 없습니다. 마이크 권한을 확인해주세요.'));
+        }
       }
     } catch (error) {
+      dispatch({ type: 'STT_FAILED', error: (error as Error).message });
       options.onError?.(error as Error);
     }
   }, [options]);

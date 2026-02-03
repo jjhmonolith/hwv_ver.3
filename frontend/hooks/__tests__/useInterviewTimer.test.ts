@@ -12,6 +12,7 @@ interface UseInterviewTimerProps {
   initialTimeLeft?: number;
   onTimeUp: () => void;
   isTopicStarted: boolean;
+  currentTopicIndex: number;
   isSpeaking?: boolean;
   isTranscribing?: boolean;
 }
@@ -35,6 +36,7 @@ describe('useInterviewTimer', () => {
           totalTime: 180,
           onTimeUp: jest.fn(),
           isTopicStarted: false,
+          currentTopicIndex: 0,
         })
       );
 
@@ -49,6 +51,7 @@ describe('useInterviewTimer', () => {
           initialTimeLeft: 120,
           onTimeUp: jest.fn(),
           isTopicStarted: false,
+          currentTopicIndex: 0,
         })
       );
 
@@ -66,6 +69,7 @@ describe('useInterviewTimer', () => {
           totalTime: 180,
           onTimeUp: jest.fn(),
           isTopicStarted: true,
+          currentTopicIndex: 0,
         })
       );
 
@@ -85,6 +89,7 @@ describe('useInterviewTimer', () => {
           totalTime: 180,
           onTimeUp: jest.fn(),
           isTopicStarted: false,
+          currentTopicIndex: 0,
         })
       );
 
@@ -108,6 +113,7 @@ describe('useInterviewTimer', () => {
             totalTime: 180,
             onTimeUp: jest.fn(),
             isTopicStarted: true,
+            currentTopicIndex: 0,
             isSpeaking: false,
           },
         }
@@ -124,6 +130,7 @@ describe('useInterviewTimer', () => {
         totalTime: 180,
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 0,
         isSpeaking: true,
       });
 
@@ -150,6 +157,7 @@ describe('useInterviewTimer', () => {
             totalTime: 180,
             onTimeUp: jest.fn(),
             isTopicStarted: true,
+            currentTopicIndex: 0,
             isTranscribing: false,
           },
         }
@@ -166,6 +174,7 @@ describe('useInterviewTimer', () => {
         totalTime: 180,
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 0,
         isTranscribing: true,
       });
 
@@ -190,6 +199,7 @@ describe('useInterviewTimer', () => {
           totalTime: 180,
           onTimeUp: jest.fn(),
           isTopicStarted: true,
+          currentTopicIndex: 0,
         })
       );
 
@@ -238,6 +248,7 @@ describe('useInterviewTimer', () => {
           totalTime: 3,
           onTimeUp,
           isTopicStarted: true,
+          currentTopicIndex: 0,
         })
       );
 
@@ -257,6 +268,7 @@ describe('useInterviewTimer', () => {
           totalTime: 2,
           onTimeUp,
           isTopicStarted: true,
+          currentTopicIndex: 0,
         })
       );
 
@@ -282,6 +294,7 @@ describe('useInterviewTimer', () => {
             initialTimeLeft: 180,
             onTimeUp: jest.fn(),
             isTopicStarted: true,
+            currentTopicIndex: 0,
           },
         }
       );
@@ -298,6 +311,7 @@ describe('useInterviewTimer', () => {
         initialTimeLeft: 170, // Server says 170 seconds left
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 0,
       });
 
       expect(result.current.timeLeft).toBe(170);
@@ -308,7 +322,7 @@ describe('useInterviewTimer', () => {
   // Test 8: Topic Change Reset
   // ========================================
   describe('topic change', () => {
-    it('should reset timer when totalTime changes (new topic)', () => {
+    it('should reset timer when currentTopicIndex changes (new topic)', () => {
       const { result, rerender } = renderHook(
         (props: UseInterviewTimerProps) => useInterviewTimer(props),
         {
@@ -316,6 +330,7 @@ describe('useInterviewTimer', () => {
             totalTime: 180,
             onTimeUp: jest.fn(),
             isTopicStarted: true,
+            currentTopicIndex: 0,
           },
         }
       );
@@ -326,18 +341,19 @@ describe('useInterviewTimer', () => {
       });
       expect(result.current.timeLeft).toBe(150);
 
-      // Change to new topic with different totalTime
+      // Change to new topic (same totalTime, different index)
       rerender({
-        totalTime: 240, // New topic with 4 minutes
+        totalTime: 180, // Same totalTime
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 1, // New topic index
       });
 
-      // Should reset to new totalTime
-      expect(result.current.timeLeft).toBe(240);
+      // Should reset to totalTime
+      expect(result.current.timeLeft).toBe(180);
     });
 
-    it('should not reset when totalTime stays the same', () => {
+    it('should not reset when currentTopicIndex stays the same', () => {
       const { result, rerender } = renderHook(
         (props: UseInterviewTimerProps) => useInterviewTimer(props),
         {
@@ -345,6 +361,7 @@ describe('useInterviewTimer', () => {
             totalTime: 180,
             onTimeUp: jest.fn(),
             isTopicStarted: true,
+            currentTopicIndex: 0,
           },
         }
       );
@@ -355,11 +372,12 @@ describe('useInterviewTimer', () => {
       });
       expect(result.current.timeLeft).toBe(170);
 
-      // Rerender with same totalTime (not a topic change)
+      // Rerender with same currentTopicIndex (not a topic change)
       rerender({
         totalTime: 180,
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 0,
       });
 
       // Should maintain current time
@@ -379,6 +397,7 @@ describe('useInterviewTimer', () => {
             totalTime: 180,
             onTimeUp: jest.fn(),
             isTopicStarted: false,
+            currentTopicIndex: 0,
             isSpeaking: false,
           },
         }
@@ -392,6 +411,7 @@ describe('useInterviewTimer', () => {
         totalTime: 180,
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 0,
         isSpeaking: false,
       });
 
@@ -402,6 +422,7 @@ describe('useInterviewTimer', () => {
         totalTime: 180,
         onTimeUp: jest.fn(),
         isTopicStarted: true,
+        currentTopicIndex: 0,
         isSpeaking: true,
       });
 
@@ -419,6 +440,7 @@ describe('useInterviewTimer', () => {
           totalTime: 180,
           onTimeUp: jest.fn(),
           isTopicStarted: true,
+          currentTopicIndex: 0,
         })
       );
 

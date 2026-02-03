@@ -155,6 +155,8 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
 
         // Restore messages from conversations
         let lastAiQuestion: string | null = null;
+        let isActualReconnection = false;
+
         if (serverState.conversations && serverState.conversations.length > 0) {
           const currentTopicConversations = serverState.conversations
             .filter((c) => c.topic_index === serverState.currentTopicIndex)
@@ -171,6 +173,33 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
             .pop();
           if (lastAiMsg) {
             lastAiQuestion = lastAiMsg.content;
+          }
+
+          // Check if this is actual reconnection using sessionStorage
+          // This distinguishes "first visit after API call" from "actual page refresh/reconnection"
+          if (typeof window !== 'undefined') {
+            const visitedKey = `voice-interview-visited-${sessionToken}`;
+            const initKey = `voice-interview-init-${sessionToken}`;
+            const reconnectionKey = `voice-interview-reconnection-${sessionToken}`;
+
+            const alreadyInitialized = sessionStorage.getItem(initKey) === 'done';
+
+            if (!alreadyInitialized) {
+              sessionStorage.setItem(initKey, 'done');
+
+              const hasVisitedBefore = sessionStorage.getItem(visitedKey) === 'true';
+              if (hasVisitedBefore) {
+                isActualReconnection = true;
+              } else {
+                sessionStorage.setItem(visitedKey, 'true');
+              }
+              // Store the reconnection decision for React Strict Mode double-render
+              sessionStorage.setItem(reconnectionKey, isActualReconnection ? 'true' : 'false');
+            } else {
+              // Already initialized in this session (e.g., React Strict Mode double-render)
+              // Use the stored reconnection decision, not the visitedKey
+              isActualReconnection = sessionStorage.getItem(reconnectionKey) === 'true';
+            }
           }
         }
 
@@ -197,19 +226,24 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
           // AI 생성 중이었음 → 폴링 재개
           voice.reconnect(voiceServerState);
           startPolling();
-        } else if (serverState.conversations && serverState.conversations.length > 0) {
-          // 재접속 → PAUSED 상태
+        } else if (isActualReconnection && serverState.conversations && serverState.conversations.length > 0) {
+          // 실제 재접속 (페이지 새로고침/탭 재접속) → PAUSED 상태
           voice.reconnect(voiceServerState);
-        } else if (serverState.firstQuestion) {
-          // 새 세션 → TTS 재생 시작
-          const firstQuestion = serverState.firstQuestion;
-          addMessage({
-            role: 'ai',
-            content: firstQuestion,
-            timestamp: new Date().toISOString(),
-          });
+        } else if (serverState.firstQuestion || lastAiQuestion) {
+          // 새 세션 또는 첫 방문 → TTS 재생 시작
+          const question = lastAiQuestion || serverState.firstQuestion!;
+
+          // Only add message if not already in messages
+          if (!lastAiQuestion) {
+            addMessage({
+              role: 'ai',
+              content: question,
+              timestamp: new Date().toISOString(),
+            });
+          }
+
           voice.start(
-            firstQuestion,
+            question,
             serverState.topicsState[serverState.currentTopicIndex]?.timeLeft || totalTime,
             serverState.currentTopicIndex,
             serverState.topicsState.length

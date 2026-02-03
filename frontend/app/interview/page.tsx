@@ -137,6 +137,7 @@ export default function InterviewPage() {
     initialTimeLeft: serverTimeLeft,
     onTimeUp: handleTimeUp,
     isTopicStarted: isTopicEffectivelyStarted,
+    currentTopicIndex,
     isSpeaking,
     isTranscribing,
     isListening,
