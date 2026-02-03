@@ -7,7 +7,7 @@ interface TopicState {
   title: string;
   totalTime: number;
   timeLeft: number;
-  status: 'pending' | 'active' | 'done' | 'expired';
+  status: 'pending' | 'active' | 'done' | 'skipped';
   started: boolean;
 }
 
@@ -57,7 +57,7 @@ export function TopicProgress({
                 topic.status === 'done' && 'bg-green-500',
                 topic.status === 'active' && 'bg-blue-500',
                 topic.status === 'pending' && 'bg-slate-300',
-                topic.status === 'expired' && 'bg-red-500'
+                topic.status === 'skipped' && 'bg-orange-500'
               )}
               title={`${topic.title} - ${topic.status}`}
             />

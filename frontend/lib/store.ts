@@ -54,7 +54,7 @@ export interface TopicState {
   title: string;
   totalTime: number;
   timeLeft: number;
-  status: 'pending' | 'active' | 'completed' | 'expired';
+  status: 'pending' | 'active' | 'done' | 'skipped';
   started: boolean;
 }
 

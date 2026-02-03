@@ -148,7 +148,7 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
           currentPhase: serverState.currentPhase as 'topic_intro' | 'topic_active' | 'topic_transition' | 'topic_expired_while_away' | 'finalizing' | 'completed',
           topicsState: serverState.topicsState.map((t) => ({
             ...t,
-            status: t.status as 'pending' | 'active' | 'completed' | 'expired',
+            status: t.status as 'pending' | 'active' | 'done' | 'skipped',
           })),
           firstQuestion: serverState.firstQuestion,
         });
@@ -184,7 +184,7 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
             title: t.title,
             totalTime: t.totalTime,
             timeLeft: t.timeLeft,
-            status: t.status as 'pending' | 'active' | 'done' | 'expired',
+            status: t.status as 'pending' | 'active' | 'done' | 'skipped',
             started: t.started,
           })),
           lastQuestion: lastAiQuestion || serverState.firstQuestion,
@@ -399,7 +399,7 @@ export default function VoiceInterviewPage({ onError }: VoiceInterviewPageProps)
         currentTitle={currentTopic?.title ?? ''}
         topicsState={topicsState.map((t) => ({
           ...t,
-          status: t.status as 'pending' | 'active' | 'done' | 'expired',
+          status: t.status as 'pending' | 'active' | 'done' | 'skipped',
         }))}
       />
 

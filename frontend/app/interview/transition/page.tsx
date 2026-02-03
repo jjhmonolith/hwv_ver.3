@@ -64,7 +64,7 @@ export default function TransitionPage() {
             currentPhase: 'topic_intro',
             topicsState: response.topicsState.map((t) => ({
               ...t,
-              status: t.status as 'pending' | 'active' | 'completed' | 'expired',
+              status: t.status as 'pending' | 'active' | 'done' | 'skipped',
             })),
           });
 
@@ -132,7 +132,7 @@ export default function TransitionPage() {
           currentPhase: 'topic_intro',
           topicsState: response.topicsState.map((t) => ({
             ...t,
-            status: t.status as 'pending' | 'active' | 'completed' | 'expired',
+            status: t.status as 'pending' | 'active' | 'done' | 'skipped',
           })),
         });
 

@@ -233,7 +233,7 @@ export interface VoiceServerState {
     title: string;
     totalTime: number;
     timeLeft: number;
-    status: 'pending' | 'active' | 'done' | 'expired';
+    status: 'pending' | 'active' | 'done' | 'skipped';
     started: boolean;
   }>;
   lastQuestion?: string;

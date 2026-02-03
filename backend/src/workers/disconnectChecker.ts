@@ -118,9 +118,17 @@ async function checkTopicTimeoutsForDisconnectedParticipants(): Promise<number> 
 
       // Check if topic time has expired
       if (currentTopic.timeLeft <= elapsedSeconds) {
+        // Check if student has responded in this topic
+        const responseCheck = await query<{ count: string }>(
+          `SELECT COUNT(*) as count FROM interview_conversations
+           WHERE participant_id = $1 AND topic_index = $2 AND role = 'student'`,
+          [row.participant_id, row.current_topic_index]
+        );
+        const hasStudentResponse = parseInt(responseCheck.rows[0].count) > 0;
+
         // Update topic status and phase
         currentTopic.timeLeft = 0;
-        currentTopic.status = 'expired';
+        currentTopic.status = hasStudentResponse ? 'done' : 'skipped';
 
         await query(
           `UPDATE interview_states
@@ -130,7 +138,7 @@ async function checkTopicTimeoutsForDisconnectedParticipants(): Promise<number> 
           [JSON.stringify(topicsState), row.participant_id]
         );
 
-        console.log(`[DisconnectChecker] Topic expired while away for ${row.student_name} (topic ${row.current_topic_index + 1}/${row.topic_count})`);
+        console.log(`[DisconnectChecker] Topic ${hasStudentResponse ? 'done' : 'skipped'} while away for ${row.student_name} (topic ${row.current_topic_index + 1}/${row.topic_count})`);
         updatedCount++;
       }
     }

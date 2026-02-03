@@ -568,7 +568,8 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
       `SELECT
         sp.status,
         ist.current_topic_index, ist.current_phase, ist.topics_state, ist.topic_started_at,
-        ist.ai_generation_pending, ist.ai_generation_started_at, ist.accumulated_pause_time
+        ist.ai_generation_pending, ist.ai_generation_started_at, ist.accumulated_pause_time,
+        ist.pause_started_at
        FROM student_participants sp
        LEFT JOIN interview_states ist ON sp.id = ist.participant_id
        WHERE sp.id = $1`,
@@ -595,8 +596,15 @@ router.post('/heartbeat', async (req: Request, res: Response): Promise<void> => 
     if (data.topic_started_at && data.current_phase === 'topic_active') {
       // Calculate current pause time if AI is generating
       if (aiGenerationPending && data.ai_generation_started_at) {
-        currentPauseTime = Math.floor(
+        currentPauseTime += Math.floor(
           (Date.now() - new Date(data.ai_generation_started_at).getTime()) / 1000
+        );
+      }
+
+      // Calculate current pause time if TTS/STT pause is active
+      if (data.pause_started_at) {
+        currentPauseTime += Math.floor(
+          (Date.now() - new Date(data.pause_started_at).getTime()) / 1000
         );
       }
 
@@ -953,9 +961,11 @@ router.post('/next-topic', async (req: Request, res: Response): Promise<void> =>
     }
 
     // Update interview state with topic_started_at for immediate timer start
+    // Reset accumulated_pause_time and pause_started_at for new topic
     await query(
       `UPDATE interview_states
-       SET current_topic_index = $1, current_phase = 'topic_active', topics_state = $2, topic_started_at = NOW()
+       SET current_topic_index = $1, current_phase = 'topic_active', topics_state = $2, topic_started_at = NOW(),
+           accumulated_pause_time = 0, pause_started_at = NULL
        WHERE participant_id = $3`,
       [nextTopicIndex, JSON.stringify(topicsState), req.participant.id]
     );
@@ -1022,9 +1032,17 @@ router.post('/topic-timeout', async (req: Request, res: Response): Promise<void>
       ? JSON.parse(state.analyzed_topics)
       : state.analyzed_topics;
 
-    // Mark current topic as expired
+    // Check if student has responded in this topic
+    const responseCheck = await query(
+      `SELECT COUNT(*) as count FROM interview_conversations
+       WHERE participant_id = $1 AND topic_index = $2 AND role = 'student'`,
+      [req.participant.id, currentTopicIndex]
+    );
+    const hasStudentResponse = parseInt(responseCheck.rows[0].count) > 0;
+
+    // Mark current topic as done or skipped based on student response
     if (topicsState[currentTopicIndex]) {
-      topicsState[currentTopicIndex].status = 'expired';
+      topicsState[currentTopicIndex].status = hasStudentResponse ? 'done' : 'skipped';
       topicsState[currentTopicIndex].timeLeft = 0;
     }
 
@@ -1108,9 +1126,17 @@ router.post('/confirm-transition', async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Mark current topic as expired/done
+    // Check if student has responded in this topic
+    const responseCheck = await query(
+      `SELECT COUNT(*) as count FROM interview_conversations
+       WHERE participant_id = $1 AND topic_index = $2 AND role = 'student'`,
+      [req.participant.id, currentTopicIndex]
+    );
+    const hasStudentResponse = parseInt(responseCheck.rows[0].count) > 0;
+
+    // Mark current topic as done or skipped based on student response
     if (topicsState[currentTopicIndex]) {
-      topicsState[currentTopicIndex].status = 'expired';
+      topicsState[currentTopicIndex].status = hasStudentResponse ? 'done' : 'skipped';
       topicsState[currentTopicIndex].timeLeft = 0;
     }
 
@@ -1168,9 +1194,11 @@ router.post('/confirm-transition', async (req: Request, res: Response): Promise<
     }
 
     // Update interview state with topic_started_at for immediate timer start
+    // Reset accumulated_pause_time and pause_started_at for new topic
     await query(
       `UPDATE interview_states
-       SET current_topic_index = $1, current_phase = 'topic_active', topics_state = $2, topic_started_at = NOW()
+       SET current_topic_index = $1, current_phase = 'topic_active', topics_state = $2, topic_started_at = NOW(),
+           accumulated_pause_time = 0, pause_started_at = NULL
        WHERE participant_id = $3`,
       [nextTopicIndex, JSON.stringify(topicsState), req.participant.id]
     );
